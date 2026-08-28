@@ -62,7 +62,7 @@ The required gates depend on the registry, because npm only attests packages
 published with public access. CI checks the pairing automatically; these are the
 same assertions by hand.
 
-**Phase 1 — GitHub Packages (current):**
+**Phase 1 — GitHub Packages (used for 1.0.0 internal validation):**
 
 ```bash
 # Strip comments: both phases are described in the workflow's own prose, and a
@@ -78,7 +78,7 @@ Provenance is unavailable for a private package. Claiming it in the workflow
 would fail the publish, and — worse — a reader would believe the release is
 attested when it cannot be.
 
-**Phase 2 — public npm:**
+**Phase 2 — public npm (current):**
 
 ```bash
 CODE=$(sed 's/#.*//' .github/workflows/publish.yml)
@@ -92,7 +92,9 @@ re-published.
 
 ## 6b. Moving from Phase 1 to Phase 2
 
-When the package goes public, change all of these in one commit:
+Done on 2026-08-28, ahead of the public 1.0.0. Kept as a record of what the move
+touches, because getting only some of it right leaves the gates disagreeing with
+the workflow. Change all of these in one commit:
 
 1. `publish.yml`: `registry-url` to `https://registry.npmjs.org`, add
    `id-token: write`, publish with `--access public --provenance --ignore-scripts`,

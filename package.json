@@ -26,9 +26,6 @@
   },
   "license": "Apache-2.0",
   "author": "SoftSpark <biuro@softspark.eu>",
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "type": "module",
   "bin": {
     "gitspace-install": "bin/gitspace-install.mjs"

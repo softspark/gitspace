@@ -12,14 +12,14 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write   # create the GitHub Release
-      packages: write   # publish to GitHub Packages
+      id-token: write   # required for --provenance (OIDC attestation)
     steps:
       - uses: actions/checkout@v7
 
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-          registry-url: 'https://npm.pkg.github.com'
+          registry-url: 'https://registry.npmjs.org'
           scope: '@softspark'
 
       # A tag can be pushed from a commit that never ran the local gate, so the
@@ -55,15 +55,15 @@ jobs:
           # carrying it an obligation, so its absence is a release blocker.
           exit $missing
 
-      # Phase 1 — private package on GitHub Packages. Provenance is NOT available
-      # here: npm requires public access to attest a package. It is therefore
-      # omitted deliberately, not forgotten. Moving to the public registry means
-      # switching registry-url to registry.npmjs.org, adding id-token: write and
-      # publishing with `--access public --provenance --ignore-scripts`.
-      - name: Publish to GitHub Packages
-        run: npm publish --ignore-scripts
+      # Public npm. Provenance is mandatory here (Golden Rule 8) and works only
+      # because the package is published with public access; the private
+      # GitHub Packages phase could not carry it. --ignore-scripts costs nothing
+      # since the package ships no lifecycle scripts, and closes a supply-chain
+      # hole at publish time.
+      - name: Publish to npm
+        run: npm publish --access public --provenance --ignore-scripts
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
       # Third-party action pinned to a full commit SHA (supply-chain hardening);
       # Dependabot (github-actions) keeps the SHA current.

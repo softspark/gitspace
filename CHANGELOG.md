@@ -7,11 +7,12 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## v1.0.0 -- Initial release (2026-08-28)
+## v1.0.0 -- Initial public release (2026-08-28)
 
-Published to GitHub Packages as a private package. Provenance attestation is
-not available for private packages and is therefore not claimed; the move to the
-public npm registry will add it.
+Published to the public npm registry with SLSA provenance. An identical build
+was first published privately to GitHub Packages for internal validation, per
+the two-phase release standard; that phase could not carry provenance, since npm
+only attests packages published with public access.
 
 ### Added
 - **Per-directory git identity** -- `gitspace add <path> --email <address>` binds a

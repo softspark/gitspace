@@ -64,17 +64,7 @@ git clone https://github.com/softspark/gitspace.git \
   "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/gitspace"
 ```
 
-### From the package registry
-
-`@softspark/gitspace` currently publishes to **GitHub Packages**, which requires
-authentication even for reading. Add to `~/.npmrc`:
-
-```
-@softspark:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=<a GitHub token with read:packages>
-```
-
-Then:
+### From npm
 
 ```bash
 npx @softspark/gitspace install

@@ -16,36 +16,22 @@ Run once `publish.yml` goes green. Everything happens under a throwaway `HOME`,
 so a failing test cannot damage a real configuration. Open a fresh shell when
 you are done — `HOME` is overridden for the duration.
 
-## Phase 0 — prerequisites
-
-Installing from GitHub Packages needs a token carrying **`read:packages`**. The
-default `gh` login does not include that scope, and its absence surfaces as
-`401 Unauthorized — authentication token not provided`, which reads like a
-missing `.npmrc` rather than a missing scope:
-
-```bash
-gh auth status                                  # check the scope list
-gh auth refresh -h github.com -s read:packages  # add it if missing
-```
-
 ## Phase 1 — isolated install
 
-```bash
-# Read the token FIRST. gh resolves its config from $HOME, so asking for the
-# token after overriding HOME returns an empty string and the install fails
-# with the same misleading 401 as a missing scope.
-TOKEN="$(gh auth token)"
+The package is public, so no token and no `~/.npmrc` are needed.
 
+```bash
 export SMOKE=$(mktemp -d)
 export HOME="$SMOKE/home"
 mkdir -p "$HOME"
-cat > "$HOME/.npmrc" <<NPMRC
-@softspark:registry=https://npm.pkg.github.com
-//npm.pkg.github.com/:_authToken=${TOKEN}
-NPMRC
-
 npm install -g --prefix "$SMOKE/npm" @softspark/gitspace@X.Y.Z
 ```
+
+Until 1.0.0 the package lived on GitHub Packages, where this phase needed a
+token with `read:packages` **read before `HOME` was redirected** — `gh` resolves
+its config from `$HOME`, so reading it afterwards yielded an empty string and a
+`401` identical to a missing scope. Kept here because the same trap applies to
+any private-registry smoke test.
 
 ## Phase 2 — installer
 
@@ -92,17 +78,7 @@ cd "$HOME/ws/Demo/r" && echo x > f && git add f && git commit -m t   # succeeds
 git config user.email intruder@example.test && git commit -m t --allow-empty  # refused
 ```
 
-## Phase 4 — supply-chain verification
-
-**Phase 1 (GitHub Packages, current): skip this phase.** npm does not attest
-private packages, so there is no provenance to verify. Confirm instead that the
-release landed and is readable with a `read:packages` token:
-
-```bash
-npm view @softspark/gitspace@X.Y.Z version --registry https://npm.pkg.github.com
-```
-
-**Phase 2 (public npm): mandatory.**
+## Phase 4 — supply-chain verification (mandatory)
 
 ```bash
 npm view "@softspark/gitspace@X.Y.Z" --json | python3 -c \
