@@ -16,12 +16,34 @@ Run once `publish.yml` goes green. Everything happens under a throwaway `HOME`,
 so a failing test cannot damage a real configuration. Open a fresh shell when
 you are done — `HOME` is overridden for the duration.
 
+## Phase 0 — prerequisites
+
+Installing from GitHub Packages needs a token carrying **`read:packages`**. The
+default `gh` login does not include that scope, and its absence surfaces as
+`401 Unauthorized — authentication token not provided`, which reads like a
+missing `.npmrc` rather than a missing scope:
+
+```bash
+gh auth status                                  # check the scope list
+gh auth refresh -h github.com -s read:packages  # add it if missing
+```
+
 ## Phase 1 — isolated install
 
 ```bash
+# Read the token FIRST. gh resolves its config from $HOME, so asking for the
+# token after overriding HOME returns an empty string and the install fails
+# with the same misleading 401 as a missing scope.
+TOKEN="$(gh auth token)"
+
 export SMOKE=$(mktemp -d)
 export HOME="$SMOKE/home"
 mkdir -p "$HOME"
+cat > "$HOME/.npmrc" <<NPMRC
+@softspark:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${TOKEN}
+NPMRC
+
 npm install -g --prefix "$SMOKE/npm" @softspark/gitspace@X.Y.Z
 ```
 
@@ -100,6 +122,25 @@ npm pack @softspark/gitspace@X.Y.Z --dry-run 2>&1 \
 All four must appear. A missing `NOTICE` breaks the Apache-2.0 §4(d) obligation
 and is a release blocker, not a nitpick.
 
+Also assert what must **not** ship — `.npmignore` regressions are invisible
+otherwise:
+
+```bash
+for f in tests/run.sh kb CLAUDE.md SECURITY.md .github; do
+  test -e "$SMOKE/npm/lib/node_modules/@softspark/gitspace/$f" \
+    && echo "FAIL: should not ship: $f"
+done
+```
+
 ## Phase 6 — cleanup
 
 Delete `$SMOKE` and open a new shell.
+
+## Run log
+
+| Version | Date | Result |
+|---|---|---|
+| 1.0.0 | 2026-08-28 | 20 passed, 0 failed, 1 skipped (provenance, N/A for a private package) |
+
+Phases 0 and 1 were rewritten during the 1.0.0 run: the first attempt failed on
+an empty token, because it was read after `HOME` had already been redirected.
