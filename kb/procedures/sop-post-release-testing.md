@@ -114,9 +114,23 @@ Delete `$SMOKE` and open a new shell.
 
 ## Run log
 
-| Version | Date | Result |
-|---|---|---|
-| 1.0.0 | 2026-08-28 | 20 passed, 0 failed, 1 skipped (provenance, N/A for a private package) |
+| Version | Registry | Date | Result |
+|---|---|---|---|
+| 1.0.0 | GitHub Packages (private) | 2026-08-28 | 20 passed, 0 failed, 1 skipped — provenance N/A |
+| 1.0.0 | public npm | 2026-08-28 | 20 passed, 0 failed, 0 skipped |
 
-Phases 0 and 1 were rewritten during the 1.0.0 run: the first attempt failed on
-an empty token, because it was read after `HOME` had already been redirected.
+Three things this SOP learned by being run rather than written:
+
+**The token had to move.** The private-registry run first failed on an empty
+token, read after `HOME` had already been redirected. Same symptom as a missing
+`read:packages` scope, different cause.
+
+**Provenance needs a public source repository.** The first public publish failed
+with `422 — Unsupported GitHub Actions source repository visibility: "private"`,
+after npm had already signed the statement into the sigstore transparency log.
+Every quality gate passed; only the last step failed. Flip repository visibility
+*before* pushing the tag.
+
+**A fresh package 404s for a while.** `npm publish` printed
+`+ @softspark/gitspace@1.0.0` and the registry answered `404` for roughly 100
+seconds. Poll rather than diagnose.
