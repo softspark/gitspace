@@ -1,0 +1,105 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: ShellCheck (POSIX sh hooks)
+        run: shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Parse the installer
+        run: node --check bin/gitspace-install.mjs
+
+  zsh-syntax:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install zsh
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Parse zsh sources
+        run: |
+          zsh -n gitspace.plugin.zsh
+          zsh -n _gitspace
+
+  test:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '22' }
+      - name: Install zsh
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: Run the suite
+        run: ./tests/run.sh
+
+  required-files:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check required files
+        run: |
+          for f in LICENSE NOTICE CHANGELOG.md SECURITY.md CODE_OF_CONDUCT.md README.md \
+                   .npmrc .github/CODEOWNERS .github/FUNDING.yml \
+                   kb/procedures/sop-pre-commit.md \
+                   kb/procedures/sop-release.md \
+                   kb/procedures/sop-post-release-testing.md; do
+            test -f "$f" || { echo "Missing: $f"; exit 1; }
+          done
+      - name: Version is in sync
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          grep -q "## v${PKG} " CHANGELOG.md || { echo "CHANGELOG has no entry for v${PKG}"; exit 1; }
+      # The provenance requirement is conditional on the registry: npm only
+      # attests packages published with public access, so a private GitHub
+      # Packages release cannot carry provenance. Asserting it unconditionally
+      # would fail a correct Phase 1 setup, and dropping the assertion entirely
+      # would let a public release ship unsigned. Pick the check from the
+      # registry the workflow actually targets.
+      - name: Supply-chain gates match the target registry
+        run: |
+          # Strip comments first. Both phases are described in the workflow's own
+          # comments, so grepping the raw file matches the prose and reports the
+          # wrong phase — a gate that reads as protection while checking nothing.
+          CODE=$(sed 's/#.*//' .github/workflows/publish.yml)
+
+          if printf '%s' "$CODE" | grep -q 'registry-url:.*registry\.npmjs\.org'; then
+            echo "target: public npm -> provenance is mandatory"
+            printf '%s' "$CODE" | grep -q -- '--provenance' \
+              || { echo "::error::public publish without --provenance"; exit 1; }
+            printf '%s' "$CODE" | grep -q 'id-token: write' \
+              || { echo "::error::--provenance needs id-token: write"; exit 1; }
+          elif printf '%s' "$CODE" | grep -q 'registry-url:.*npm\.pkg\.github\.com'; then
+            echo "target: GitHub Packages -> provenance unavailable, must not be claimed"
+            printf '%s' "$CODE" | grep -q -- '--provenance' \
+              && { echo "::error::--provenance cannot work on GitHub Packages"; exit 1; }
+            printf '%s' "$CODE" | grep -q 'packages: write' \
+              || { echo "::error::GitHub Packages publish needs packages: write"; exit 1; }
+          else
+            echo "::error::publish.yml declares no recognised registry-url"; exit 1
+          fi
+
+          grep -q 'ignore-scripts=true' .npmrc \
+            || { echo "::error::.npmrc must set ignore-scripts=true"; exit 1; }

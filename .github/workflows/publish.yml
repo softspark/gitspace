@@ -1,0 +1,73 @@
+name: Publish
+on:
+  push:
+    tags: ['v*']
+
+# Default to read-only; the publish job elevates to exactly what it needs.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write   # create the GitHub Release
+      packages: write   # publish to GitHub Packages
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@softspark'
+
+      # A tag can be pushed from a commit that never ran the local gate, so the
+      # whole contract is re-checked here rather than trusted.
+      - name: Tag matches package.json
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          TAG="${GITHUB_REF_NAME#v}"
+          [ "$PKG" = "$TAG" ] || { echo "::error::package.json is $PKG but the tag is $TAG"; exit 1; }
+
+      - name: Install zsh and shellcheck
+        run: sudo apt-get update && sudo apt-get install -y zsh shellcheck
+
+      - name: Quality gates
+        run: |
+          shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh
+          node --check bin/gitspace-install.mjs
+          zsh -n gitspace.plugin.zsh
+          zsh -n _gitspace
+          ./tests/run.sh
+
+      - name: Tarball gate — everything the plugin needs at runtime ships
+        run: |
+          tarball="$(npm pack 2>/dev/null | tail -n1)"
+          tar -tzf "$tarball" | sed 's#^package/##' > /tmp/pack-entries.txt
+          echo "Tarball entries:"; cat /tmp/pack-entries.txt
+          missing=0
+          for f in gitspace.plugin.zsh _gitspace lib/guard.sh lib/pre-commit lib/pre-push \
+                   templates/workspaces.conf bin/gitspace-install.mjs LICENSE NOTICE; do
+            grep -qx "$f" /tmp/pack-entries.txt || { echo "::error::missing from tarball: $f"; missing=1; }
+          done
+          # npm ships LICENSE on its own but never NOTICE; Apache-2.0 §4(d) makes
+          # carrying it an obligation, so its absence is a release blocker.
+          exit $missing
+
+      # Phase 1 — private package on GitHub Packages. Provenance is NOT available
+      # here: npm requires public access to attest a package. It is therefore
+      # omitted deliberately, not forgotten. Moving to the public registry means
+      # switching registry-url to registry.npmjs.org, adding id-token: write and
+      # publishing with `--access public --provenance --ignore-scripts`.
+      - name: Publish to GitHub Packages
+        run: npm publish --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Third-party action pinned to a full commit SHA (supply-chain hardening);
+      # Dependabot (github-actions) keeps the SHA current.
+      - name: GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          generate_release_notes: true

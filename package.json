@@ -1,0 +1,55 @@
+{
+  "name": "@softspark/gitspace",
+  "version": "1.0.0",
+  "description": "Oh My Zsh plugin binding git identity to workspace directories: per-directory commit e-mail, gh account and SSH key, enforced by hooks and URL rewriting so a wrong-account commit fails instead of happening quietly.",
+  "keywords": [
+    "zsh",
+    "oh-my-zsh",
+    "oh-my-zsh-plugin",
+    "git",
+    "git-identity",
+    "multiple-accounts",
+    "ssh",
+    "github",
+    "gitlab",
+    "gh-cli",
+    "developer-tools",
+    "workspace"
+  ],
+  "homepage": "https://github.com/softspark/gitspace",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/softspark/gitspace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/softspark/gitspace/issues"
+  },
+  "license": "Apache-2.0",
+  "author": "SoftSpark <biuro@softspark.eu>",
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
+  "type": "module",
+  "bin": {
+    "gitspace-install": "bin/gitspace-install.mjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "templates/",
+    "gitspace.plugin.zsh",
+    "_gitspace",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "lint": "shellcheck lib/guard.sh lib/pre-commit lib/pre-push",
+    "typecheck": "node --check bin/gitspace-install.mjs",
+    "test": "./tests/run.sh"
+  }
+}

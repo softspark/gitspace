@@ -1,5 +1,5 @@
 #compdef gitspace wclone
-# gitspace - uzupelnianie nazw przestrzeni, aliasow SSH i kont gh.
+# gitspace - completion for workspace names, SSH aliases and gh accounts.
 
 _gitspace_workspaces() {
   local conf="${GITSPACE_CONF:-$HOME/.config/git/workspaces.conf}"
@@ -20,12 +20,12 @@ _gitspace_gh_accounts() {
 _gitspace() {
   local -a cmds
   cmds=(
-    'install:hooki, szablon configu i ustawienia globalne'
-    'add:zarejestruj przestrzen i przypisz jej e-mail'
-    'list:pokaz zarejestrowane przestrzenie'
-    'doctor:sprawdz spojnosc konfiguracji'
-    'remove:wyrejestruj przestrzen'
-    'help:pomoc'
+    'install:hooks, config template and global settings'
+    'add:register a workspace and bind an e-mail to it'
+    'list:show registered workspaces'
+    'doctor:verify the whole setup'
+    'remove:unregister a workspace'
+    'help:show usage'
   )
 
   if (( CURRENT == 2 )); then
@@ -36,22 +36,22 @@ _gitspace() {
   case ${words[2]} in
     add)
       _arguments \
-        '1:katalog przestrzeni:_files -/' \
-        '--email[adres do commitow]:email:' \
-        '--gh[konto gh]:konto:($(_gitspace_gh_accounts))' \
-        '--alias[aliasy SSH po przecinku]:alias:($(_gitspace_aliases))' \
-        '--name[imie i nazwisko do commitow]:nazwa:' \
-        '--as[nazwa przestrzeni inna niz nazwa katalogu]:nazwa:'
+        '1:workspace directory:_files -/' \
+        '--email[address used for commits]:email:' \
+        '--gh[gh account]:account:($(_gitspace_gh_accounts))' \
+        '--alias[comma-separated SSH aliases]:alias:($(_gitspace_aliases))' \
+        '--name[full name used for commits]:name:' \
+        '--as[workspace name, when it differs from the directory name]:name:'
       ;;
     remove|rm)
-      _values 'przestrzen' $(_gitspace_workspaces)
+      _values 'workspace' $(_gitspace_workspaces)
       ;;
   esac
 }
 
 _wclone() {
   if (( CURRENT == 2 )); then
-    _message 'URL repozytorium (git@host:grupa/repo.git, https://... albo alias:grupa/repo)'
+    _message 'repository URL (git@host:group/repo.git, https://... or alias:group/repo)'
     compadd -S ':' $(_gitspace_aliases)
   else
     _files -/

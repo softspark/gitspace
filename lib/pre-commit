@@ -1,9 +1,10 @@
 #!/bin/sh
-# gitspace: blokuje commit tozsamoscia niezgodna z przestrzenia.
+# gitspace: refuse a commit whose identity does not match the workspace.
+# shellcheck source=lib/guard.sh
 . "${GITSPACE_LIB:-$HOME/.config/git/hooks}/guard.sh"
 
-# Lancuch do hooka repo. Jawnie przez --git-dir, bo --git-path respektuje
-# core.hooksPath i hook wykonalby sam siebie w nieskonczonej petli.
+# Chain to the repository's own hook. Resolved through --git-dir on purpose:
+# --git-path honours core.hooksPath, so this hook would exec itself forever.
 OWN="$(git rev-parse --git-dir)/hooks/pre-commit"
 [ -x "$OWN" ] && exec "$OWN" "$@"
 exit 0
