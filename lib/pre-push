@@ -1,0 +1,42 @@
+#!/bin/sh
+# gitspace: blokuje push zlym kluczem SSH albo z niewlasciwym kontem gh.
+. "${GITSPACE_LIB:-$HOME/.config/git/hooks}/guard.sh"
+
+URL=$(git remote get-url "$1" 2>/dev/null || echo "")
+
+# Ktory z aliasow przestrzeni pasuje do remote?
+MATCHED=""
+OLDIFS=$IFS; IFS=','
+for a in $EXP_SSH; do
+  [ -n "$a" ] || continue
+  case "$URL" in "$a":*) MATCHED="$a"; break ;; esac
+done
+IFS=$OLDIFS
+
+if [ -z "$MATCHED" ]; then
+  case "$URL" in
+    https://github.com/*|git@github.com:*|https://gitlab*|git@gitlab*|ssh://git@*)
+      die "zly klucz" "Remote '$1' = $URL — poszedlby domyslnym kluczem.
+  Przestrzen '$WS' dopuszcza aliasy: ${EXP_SSH:-<brak>}" ;;
+    *) ;;   # inny host - nie ingerujemy
+  esac
+fi
+
+# Konto gh dotyczy WYLACZNIE remote'ow GitHuba - GitLab go nie uzywa.
+case "$MATCHED" in
+  github-*)
+    [ -n "$EXP_GH" ] || exit 0
+    GH_HOSTS="$HOME/.config/gh/hosts.yml"
+    if [ -f "$GH_HOSTS" ]; then
+      ACT=$(sed -n 's/^[[:space:]]*user:[[:space:]]*\(.*\)$/\1/p' "$GH_HOSTS" | tail -1)
+      [ -n "$ACT" ] || die "nieznane konto gh" "Nie umiem odczytac aktywnego konta z $GH_HOSTS."
+      [ "$ACT" = "$EXP_GH" ] || die "zle konto gh" \
+        "Aktywne konto gh to '$ACT', a przestrzen '$WS' wymaga '$EXP_GH'.
+  Napraw:  gh auth switch --user $EXP_GH"
+    fi
+  ;;
+esac
+
+OWN="$(git rev-parse --git-dir)/hooks/pre-push"
+[ -x "$OWN" ] && exec "$OWN" "$@"
+exit 0

@@ -1,0 +1,64 @@
+#compdef gitspace wclone
+# gitspace - uzupelnianie nazw przestrzeni, aliasow SSH i kont gh.
+
+_gitspace_workspaces() {
+  local conf="${GITSPACE_CONF:-$HOME/.config/git/workspaces.conf}"
+  [[ -f $conf ]] || return
+  grep -v '^[[:space:]]*#' $conf 2>/dev/null | grep -v '^[[:space:]]*$' | cut -d'|' -f1
+}
+
+_gitspace_aliases() {
+  awk '$1=="Host" { for(i=2;i<=NF;i++) if($i !~ /[*?]/) print $i }' \
+    "$HOME/.ssh/config" 2>/dev/null
+}
+
+_gitspace_gh_accounts() {
+  sed -n 's/^[[:space:]]*\([a-zA-Z0-9_-]*\):[[:space:]]*$/\1/p' \
+    "$HOME/.config/gh/hosts.yml" 2>/dev/null | grep -v '^github$'
+}
+
+_gitspace() {
+  local -a cmds
+  cmds=(
+    'install:hooki, szablon configu i ustawienia globalne'
+    'add:zarejestruj przestrzen i przypisz jej e-mail'
+    'list:pokaz zarejestrowane przestrzenie'
+    'doctor:sprawdz spojnosc konfiguracji'
+    'remove:wyrejestruj przestrzen'
+    'help:pomoc'
+  )
+
+  if (( CURRENT == 2 )); then
+    _describe -t commands 'gitspace' cmds
+    return
+  fi
+
+  case ${words[2]} in
+    add)
+      _arguments \
+        '1:katalog przestrzeni:_files -/' \
+        '--email[adres do commitow]:email:' \
+        '--gh[konto gh]:konto:($(_gitspace_gh_accounts))' \
+        '--alias[aliasy SSH po przecinku]:alias:($(_gitspace_aliases))' \
+        '--name[imie i nazwisko do commitow]:nazwa:' \
+        '--as[nazwa przestrzeni inna niz nazwa katalogu]:nazwa:'
+      ;;
+    remove|rm)
+      _values 'przestrzen' $(_gitspace_workspaces)
+      ;;
+  esac
+}
+
+_wclone() {
+  if (( CURRENT == 2 )); then
+    _message 'URL repozytorium (git@host:grupa/repo.git, https://... albo alias:grupa/repo)'
+    compadd -S ':' $(_gitspace_aliases)
+  else
+    _files -/
+  fi
+}
+
+case ${service:-$words[1]} in
+  wclone) _wclone "$@" ;;
+  *)      _gitspace "$@" ;;
+esac
