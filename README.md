@@ -7,15 +7,14 @@
 [![npm](https://img.shields.io/npm/v/@softspark/gitspace)](https://www.npmjs.com/package/@softspark/gitspace)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## What's New in v1.1.0
+## What's New in v1.1.1
 
-- **`--sign`** — sign commits and tags with the workspace's own SSH key, so the
-  identity is proven rather than merely declared
-- **`gitspace audit`** — find repositories already holding a wrong remote or
-  commits authored under another workspace's address
-- **`doctor` checks the keys exist** — an alias pointing at a missing
-  `IdentityFile` used to pass and fail only at push time
-- **Signing consistency** — flag, `gpgsign` and `allowed_signers` must agree
+- **`doctor` notices stale hooks** — the plugin may be a symlink and always
+  current, while the installed hooks are copies. A drifted copy is now reported
+  instead of passing silently
+
+Earlier in 1.1.0: `--sign`, `gitspace audit`, and key-existence checks in
+`doctor`. See [CHANGELOG.md](CHANGELOG.md).
 
 See [CHANGELOG.md](CHANGELOG.md).
 
@@ -192,6 +191,12 @@ gitspace doctor
 Verifies hooks, global settings, per-workspace configs, `includeIf` wiring, SSH
 aliases and `gh` login state. Exits non-zero when anything is wrong, so it can
 gate a provisioning script.
+
+It also compares the installed hooks against the plugin source. The plugin
+directory is frequently a symlink to a checkout and therefore always current,
+while `~/.config/git/hooks` holds copies written by `gitspace install` — so the
+hooks can be two releases behind while everything else reads as up to date. Run
+`gitspace install` after any change under `lib/`.
 
 ## Commands
 

@@ -1,6 +1,6 @@
 {
   "name": "@softspark/gitspace",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "Oh My Zsh plugin binding git identity to workspace directories: per-directory commit e-mail, gh account and SSH key, optional SSH commit signing, and an audit that finds repositories already holding the wrong identity.",
   "keywords": [
     "zsh",

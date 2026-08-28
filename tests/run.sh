@@ -275,6 +275,32 @@ else
 fi
 
 # --------------------------------------------------------------------------
+head_ "doctor: stale installed hooks"
+
+if command -v zsh >/dev/null 2>&1; then
+  # The installed hooks are copies; the plugin may be a symlink to a checkout.
+  # A drifted copy must be reported, not assumed current.
+  cp "$GITSPACE_LIB/guard.sh" "$SANDBOX/guard.orig"
+  printf '\n# drifted\n' >> "$GITSPACE_LIB/guard.sh"
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'; gitspace doctor" 2>&1)
+  case "$out" in
+    *"guard.sh differs from the plugin source"*) ok "doctor detects a stale installed hook" ;;
+    *) bad "doctor did not notice a drifted hook" ;;
+  esac
+  cp "$SANDBOX/guard.orig" "$GITSPACE_LIB/guard.sh"
+
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'; gitspace doctor" 2>&1)
+  case "$out" in
+    *"differs from the plugin source"*) bad "doctor reports drift on identical hooks" ;;
+    *) ok "matching hooks are not reported as drifted" ;;
+  esac
+else
+  skip "hook drift tests (zsh not installed)"
+fi
+
+# --------------------------------------------------------------------------
 head_ "installer"
 
 if node --check "$REPO/bin/gitspace-install.mjs" 2>/dev/null; then

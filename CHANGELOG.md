@@ -7,6 +7,19 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.1.1 -- doctor notices stale hooks (2026-08-28)
+
+### Fixed
+- **`doctor` compares the installed hooks against the plugin source.** The plugin
+  directory is often a symlink to a checkout and therefore always current, while
+  the hooks in `~/.config/git/hooks` are copies made by `gitspace install`. That
+  asymmetry hid staleness: every check passed while the guards ran code from an
+  earlier release. Found on a real installation where the installed `guard.sh`
+  predated the symlink-resolution fix by two releases — a workspace behind a
+  symlink would not have matched, and nothing said so.
+
+---
+
 ## v1.1.0 -- Proven identity, not just declared (2026-08-28)
 
 ### Added

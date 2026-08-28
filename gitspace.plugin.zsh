@@ -435,14 +435,24 @@ _gs_doctor() {
   local problems=0 line n p m a s al h x
   local -a f
 
+  # The plugin itself may be a symlink to a checkout and therefore always
+  # current, while the hooks are COPIES made by `gitspace install`. That
+  # asymmetry hides staleness: everything reads as up to date while the guards
+  # are running code from an earlier release. Compare them.
   print -P "%F{cyan}hooks%f"
+  local stale=0
   for x in guard.sh pre-commit pre-push; do
-    if [[ -f "$GITSPACE_LIB/$x" ]]; then
+    if [[ ! -f "$GITSPACE_LIB/$x" ]]; then
+      print -P "  %F{red}x%f $x missing - run: gitspace install"; (( problems++ ))
+    elif [[ ! -f "$GITSPACE_SRC/lib/$x" ]]; then
+      print -P "  %F{green}v%f $x %F{8}(source unavailable, not compared)%f"
+    elif cmp -s "$GITSPACE_SRC/lib/$x" "$GITSPACE_LIB/$x"; then
       print -P "  %F{green}v%f $x"
     else
-      print -P "  %F{red}x%f $x missing - run: gitspace install"; (( problems++ ))
+      print -P "  %F{red}x%f $x differs from the plugin source"; (( problems++ )); stale=1
     fi
   done
+  (( stale )) && print -P "  %F{yellow}run 'gitspace install' to refresh the installed hooks%f"
 
   print -P "\n%F{cyan}global settings%f"
   if [[ "$(command git config --global user.useConfigOnly)" == "true" ]]; then
