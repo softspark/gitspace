@@ -7,15 +7,15 @@
 [![npm](https://img.shields.io/npm/v/@softspark/gitspace)](https://www.npmjs.com/package/@softspark/gitspace)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## What's New in v1.0.0
+## What's New in v1.1.0
 
-- **Per-directory identity** — bind a commit e-mail, `gh` account and SSH keys to
-  a workspace with one command
-- **Three enforcement layers**, one of them enforced by the remote and therefore
-  impossible to bypass locally
-- **`wclone`** — paste any URL and it picks the right key, or refuses
-- **`gitspace doctor`** — verifies the whole setup and exits non-zero on problems
-- **npm installer** — `npx @softspark/gitspace install`, no postinstall hooks
+- **`--sign`** — sign commits and tags with the workspace's own SSH key, so the
+  identity is proven rather than merely declared
+- **`gitspace audit`** — find repositories already holding a wrong remote or
+  commits authored under another workspace's address
+- **`doctor` checks the keys exist** — an alias pointing at a missing
+  `IdentityFile` used to pass and fail only at push time
+- **Signing consistency** — flag, `gpgsign` and `allowed_signers` must agree
 
 See [CHANGELOG.md](CHANGELOG.md).
 
@@ -143,10 +143,12 @@ survive that.
 One workspace per line:
 
 ```
-name|path|email|gh-account|ssh-alias[,ssh-alias...]
+name|path|email|gh-account|ssh-alias[,ssh-alias...]|[sign]
 ```
 
-`gh-account` may be empty for workspaces that do not use GitHub.
+`gh-account` may be empty for workspaces that do not use GitHub. The sixth field
+carries the signing flag and may be absent — rows written before signing existed
+keep working.
 
 ## Usage
 
@@ -196,9 +198,10 @@ gate a provisioning script.
 | Command | Description |
 |---|---|
 | `gitspace install` | hooks, config template, global git settings |
-| `gitspace add <path> --email <addr>` | register a workspace; `--gh`, `--alias`, `--name`, `--as` optional |
+| `gitspace add <path> --email <addr>` | register a workspace; `--gh`, `--alias`, `--name`, `--as`, `--sign` optional |
 | `gitspace list` | show registered workspaces |
 | `gitspace doctor` | verify the whole setup, exit 1 on problems |
+| `gitspace audit [--deep] [--limit N]` | scan repositories for wrong remotes and identity leakage |
 | `gitspace remove <name>` | unregister a workspace (files left on disk) |
 | `wclone <url> [dir]` | clone with the key the target directory implies |
 | `gitspace-install` | npm-side installer: link the plugin, patch `~/.zshrc` |
@@ -249,6 +252,33 @@ ever opened.
 
 **Truthful reporting.** Every state that can fail to change is read back before
 being printed.
+
+### Signing
+
+```bash
+gitspace add ~/Workspace/Acme --email dev@acme.com --alias github-acme --sign
+```
+
+Commits and tags are then signed with that workspace's SSH key. The public key is
+added to `~/.config/git/allowed_signers`, so `git log --show-signature` verifies
+locally and not only on the forge. Add the same key to the forge **as a signing
+key** — GitHub and GitLab keep signing keys separate from authentication keys, and
+uploading it once as an auth key is not enough.
+
+Signing is off unless asked for. Turning it on by default would change behaviour
+for workspaces that already exist.
+
+### Auditing what is already on disk
+
+```bash
+gitspace audit            # cheap: last 50 commits per repository
+gitspace audit --deep     # whole history
+```
+
+`doctor` checks the configuration; `audit` checks the repositories. It reports
+remotes that bypass the workspace's aliases and commits authored under **another
+of your** workspace addresses. A colleague's address is not a finding — flagging
+every third-party author turns the report into noise.
 
 ## Known Limits
 

@@ -162,6 +162,119 @@ case "$out" in
 esac
 
 # --------------------------------------------------------------------------
+head_ "signing (--sign)"
+
+# A real key pair, so the signing path is exercised rather than mocked.
+ssh-keygen -t ed25519 -f "$HOME/.ssh/id_ed25519_acme" -N "" -q -C "acme"
+cat >> "$HOME/.ssh/config" <<SSHCFG
+
+Host github-signed
+    HostName github.com
+    User git
+    IdentityFile $HOME/.ssh/id_ed25519_acme
+SSHCFG
+
+if command -v zsh >/dev/null 2>&1; then
+  SIGNED="$HOME/ws/Signed"
+  zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+          source '$REPO/gitspace.plugin.zsh'
+          gitspace add '$SIGNED' --email signer@acme.test --name Signer \
+                       --alias github-signed --sign" >/dev/null 2>&1
+
+  cfg="$HOME/.gitconfig-Signed"
+  if grep -qE '^[[:space:]]*gpgsign[[:space:]]*=[[:space:]]*true' "$cfg" 2>/dev/null; then
+    ok "--sign writes commit.gpgsign"
+  else
+    bad "--sign did not enable gpgsign"
+  fi
+  if grep -q 'format = ssh' "$cfg" 2>/dev/null; then
+    ok "--sign sets gpg.format = ssh"
+  else
+    bad "gpg.format not set to ssh"
+  fi
+  if grep -q "signer@acme.test " "$HOME/.config/git/allowed_signers" 2>/dev/null; then
+    ok "--sign registers the key in allowed_signers"
+  else
+    bad "allowed_signers not updated"
+  fi
+
+  # A real signed commit must verify against that allowed-signers file.
+  mkdir -p "$SIGNED/r" && git -C "$SIGNED/r" init -q
+  echo x > "$SIGNED/r/f" && git -C "$SIGNED/r" add f
+  if git -C "$SIGNED/r" commit -q -m signed 2>/dev/null; then
+    if git -C "$SIGNED/r" log -1 --show-signature 2>&1 | grep -q 'Good .*signature'; then
+      ok "a signed commit verifies locally"
+    else
+      bad "signed commit does not verify" "$(git -C "$SIGNED/r" log -1 --show-signature 2>&1 | head -2 | tr '\n' ' ')"
+    fi
+  else
+    bad "signed commit was refused"
+  fi
+
+  # --sign without an alias has no key to sign with and must refuse.
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'
+                gitspace add '$HOME/ws/NoKey' --email x@acme.test --sign" 2>&1)
+  case "$out" in
+    *"needs at least one --alias"*) ok "--sign without --alias is refused" ;;
+    *) bad "--sign without --alias was accepted" ;;
+  esac
+else
+  skip "signing tests (zsh not installed)"
+fi
+
+# --------------------------------------------------------------------------
+head_ "doctor: key existence"
+
+if command -v zsh >/dev/null 2>&1; then
+  cat >> "$HOME/.ssh/config" <<SSHCFG
+
+Host github-ghostkey
+    HostName github.com
+    User git
+    IdentityFile $HOME/.ssh/does_not_exist
+SSHCFG
+  printf 'Ghost|%s/ws/Ghost|ghost@acme.test||github-ghostkey\n' "$HOME" >> "$GITSPACE_CONF"
+  mkdir -p "$HOME/ws/Ghost"
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'; gitspace doctor" 2>&1)
+  case "$out" in
+    *"key missing"*) ok "doctor reports a missing IdentityFile" ;;
+    *) bad "doctor accepted an alias whose key does not exist" ;;
+  esac
+  # Keep the rest of the suite deterministic.
+  grep -v '^Ghost|' "$GITSPACE_CONF" > "$SANDBOX/c" && mv "$SANDBOX/c" "$GITSPACE_CONF"
+else
+  skip "doctor key tests (zsh not installed)"
+fi
+
+# --------------------------------------------------------------------------
+head_ "audit"
+
+if command -v zsh >/dev/null 2>&1; then
+  # Plant a commit authored as the OTHER workspace's identity.
+  new_repo "$WS/leaky"
+  git -C "$WS/leaky" -c user.email=nested@acme.test -c user.name=N \
+      commit -q -m leak --no-verify
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'; gitspace audit" 2>&1)
+  case "$out" in
+    *"leaky"*"wrong workspace identity"*) ok "audit detects identity leakage" ;;
+    *) bad "audit missed a commit authored as another workspace" ;;
+  esac
+  # A third party's address must NOT be a finding.
+  new_repo "$WS/thirdparty"
+  git -C "$WS/thirdparty" -c user.email=colleague@example.com -c user.name=C \
+      commit -q -m ext --no-verify
+  case "$out" in
+    *"thirdparty"*) bad "audit flagged a third-party author as a finding" ;;
+    *) ok "audit ignores third-party authors" ;;
+  esac
+else
+  skip "audit tests (zsh not installed)"
+fi
+
+# --------------------------------------------------------------------------
 head_ "installer"
 
 if node --check "$REPO/bin/gitspace-install.mjs" 2>/dev/null; then

@@ -65,6 +65,16 @@ _gs_alias_host() {
   ' "$HOME/.ssh/config" 2>/dev/null
 }
 
+# IdentityFile bound to an alias in ~/.ssh/config, tilde expanded.
+_gs_alias_key() {
+  local k
+  k=$(awk -v a="$1" '
+    $1=="Host" { inblk=0; for(i=2;i<=NF;i++) if($i==a) inblk=1; next }
+    inblk && tolower($1)=="identityfile" { print $2; exit }
+  ' "$HOME/.ssh/config" 2>/dev/null)
+  [[ -n "$k" ]] && _gs_expand "$k"
+}
+
 # Does ~/.gitconfig carry an includeIf for this path? git writes the directory
 # either absolute or tilde-shortened, so both forms count - checking only one
 # makes doctor report a false alarm.
@@ -73,6 +83,22 @@ _gs_has_include() {
   grep -qF "gitdir:$abs/" "$HOME/.gitconfig" 2>/dev/null && return 0
   grep -qF "gitdir:$tilde/" "$HOME/.gitconfig" 2>/dev/null && return 0
   return 1
+}
+
+# The allowed-signers file lets `git log --show-signature` verify locally, not
+# just on the forge. One line per identity; rewritten in place so a workspace
+# never ends up with two entries after --sign is re-run.
+_gs_allowed_signers() { print -r -- "${GITSPACE_CONF:h}/allowed_signers"; }
+
+_gs_register_signer() {
+  local mail="$1" pub="$2" f=$(_gs_allowed_signers) tmp
+  [[ -r "$pub" ]] || return 1
+  mkdir -p "${f:h}"
+  touch "$f"
+  tmp=$(mktemp)
+  grep -v "^${mail} " "$f" > "$tmp" 2>/dev/null
+  print -r -- "$mail namespaces=\"git\" $(< "$pub")" >> "$tmp"
+  mv "$tmp" "$f"
 }
 
 # --- directory change announcement -------------------------------------------
@@ -235,7 +261,7 @@ _gs_install() {
 
 _gs_add() {
   emulate -L zsh
-  local wspath="" mail="" acct="" aliases="" uname="" as=""
+  local wspath="" mail="" acct="" aliases="" uname="" as="" sign=""
   local -a rest
   while (( $# )); do
     case "$1" in
@@ -244,6 +270,7 @@ _gs_add() {
       --alias) aliases="$2"; shift 2 ;;
       --name)  uname="$2"; shift 2 ;;
       --as)    as="$2"; shift 2 ;;
+      --sign)  sign="sign"; shift ;;
       -*) print -u2 "gitspace add: unknown option $1"; return 2 ;;
       *)  rest+=("$1"); shift ;;
     esac
@@ -251,7 +278,7 @@ _gs_add() {
   wspath=$rest[1]
 
   if [[ -z "$wspath" || -z "$mail" ]]; then
-    print -u2 "usage: gitspace add <path> --email <address> [--gh <account>] [--alias a,b] [--name \"Full Name\"] [--as <name>]"
+    print -u2 "usage: gitspace add <path> --email <address> [--gh <account>] [--alias a,b] [--name \"Full Name\"] [--as <name>] [--sign]"
     return 2
   fi
 
@@ -285,7 +312,32 @@ _gs_add() {
     return 1
   fi
 
-  print -r -- "$ws|$wspath|$mail|$acct|$aliases" >> "$GITSPACE_CONF"
+  # --sign signs with the workspace's own SSH key, so it needs exactly one.
+  local signkey=""
+  if [[ -n "$sign" ]]; then
+    # Split into a real array first. ${${(s:,:)x}[1]} indexes the first
+    # CHARACTER of the joined result, not the first element, so an alias
+    # like "github-acme" silently becomes "g".
+    local -a _als
+    _als=(${(s:,:)aliases})
+    local first=$_als[1]
+    if [[ -z "$first" ]]; then
+      print -P "%F{red}x --sign needs at least one --alias to take the key from%f"
+      return 1
+    fi
+    signkey=$(_gs_alias_key "$first")
+    if [[ -z "$signkey" ]]; then
+      print -P "%F{red}x alias '$first' has no IdentityFile in ~/.ssh/config%f"
+      return 1
+    fi
+    if [[ ! -r "$signkey.pub" ]]; then
+      print -P "%F{red}x public key not found: $signkey.pub%f"
+      print -P "   ssh signing needs the .pub beside the private key"
+      return 1
+    fi
+  fi
+
+  print -r -- "$ws|$wspath|$mail|$acct|$aliases|$sign" >> "$GITSPACE_CONF"
 
   # user.useConfigOnly requires BOTH name and email. Writing only the address
   # produces "Author identity unknown" at commit time - an error that never
@@ -310,7 +362,24 @@ _gs_add() {
       print -r -- $'\tinsteadOf = git@'"$h:"
       print -r -- $'\tinsteadOf = https://'"$h/"
     done
+    if [[ -n "$signkey" ]]; then
+      print -r -- ""
+      print -r -- "# Commits and tags are signed with this workspace's own SSH key,"
+      print -r -- "# so the identity is proven rather than merely declared."
+      print -r -- "[user]"
+      print -r -- $'\tsigningkey = '"$signkey.pub"
+      print -r -- "[gpg]"
+      print -r -- $'\tformat = ssh'
+      print -r -- "[gpg \"ssh\"]"
+      print -r -- $'\tallowedSignersFile = '"$(_gs_allowed_signers)"
+      print -r -- "[commit]"
+      print -r -- $'\tgpgsign = true'
+      print -r -- "[tag]"
+      print -r -- $'\tgpgsign = true'
+    fi
   } > "$inc"
+
+  [[ -n "$signkey" ]] && _gs_register_signer "$mail" "$signkey.pub"
 
   local gc="$HOME/.gitconfig"
   if ! _gs_has_include "$wspath"; then
@@ -325,6 +394,10 @@ _gs_add() {
   print -P "%F{green}v%f workspace %F{cyan}$ws%f -> $wspath"
   print -P "   commits: %F{green}$commit_name <$mail>%f"
   print -P "   gh account: %F{green}$a_disp%f   aliases: %F{green}$s_disp%f"
+  if [[ -n "$signkey" ]]; then
+    print -P "   signing: %F{green}on%f ($signkey.pub)"
+    print -P "   %F{8}add the same key to the forge as a SIGNING key, not just an auth key%f"
+  fi
   print -P "   config:  $inc"
   print -P "\nverify:  gitspace doctor"
 }
@@ -415,8 +488,22 @@ _gs_doctor() {
       h=$(_gs_alias_host $al)
       if [[ -z "$h" ]]; then
         print -P "    %F{red}x%f alias $al is not in ~/.ssh/config"; (( problems++ ))
+        continue
+      fi
+      # An alias pointing at a key that is not on disk passes every other check
+      # and fails only at push time - exactly the silent gap this tool exists
+      # to close, so it is verified here rather than assumed.
+      local key=$(_gs_alias_key "$al")
+      if [[ -z "$key" ]]; then
+        print -P "    %F{yellow}!%f $al -> $h (no IdentityFile; ssh will try default keys)"
+        (( problems++ ))
+      elif [[ ! -r "$key" ]]; then
+        print -P "    %F{red}x%f $al -> $h  key missing: ${key/#$HOME/~}"; (( problems++ ))
+      elif [[ ! -r "$key.pub" ]]; then
+        print -P "    %F{yellow}!%f $al -> $h  private key present, ${key:t}.pub missing (signing needs it)"
+        (( problems++ ))
       else
-        print -P "    %F{green}v%f $al -> $h"
+        print -P "    %F{green}v%f $al -> $h  (${key:t})"
       fi
     done
 
@@ -426,6 +513,27 @@ _gs_doctor() {
       else
         print -P "    %F{red}x%f gh account '$a' is NOT logged in - gh auth login"; (( problems++ ))
       fi
+    fi
+
+    # Signing: declared in workspaces.conf, realised in ~/.gitconfig-<ws>, and
+    # verifiable only if the public key is registered in allowed_signers. All
+    # three must agree, or `git log --show-signature` reports an unknown signer.
+    local want_sign=$f[6] cfg="$HOME/.gitconfig-$n" signers=$(_gs_allowed_signers)
+    if [[ -n "$want_sign" ]]; then
+      if grep -qE '^[[:space:]]*gpgsign[[:space:]]*=[[:space:]]*true' "$cfg" 2>/dev/null; then
+        print -P "    %F{green}v%f signing enabled"
+      else
+        print -P "    %F{red}x%f signing requested but gpgsign is not true in $cfg"; (( problems++ ))
+      fi
+      if grep -q "^${m} " "$signers" 2>/dev/null; then
+        print -P "    %F{green}v%f $m is in allowed_signers"
+      else
+        print -P "    %F{red}x%f $m missing from ${signers/#$HOME/~} - signatures will not verify"
+        (( problems++ ))
+      fi
+    elif grep -qE '^[[:space:]]*gpgsign[[:space:]]*=[[:space:]]*true' "$cfg" 2>/dev/null; then
+      print -P "    %F{yellow}!%f gpgsign is on in $cfg but the workspace is not marked --sign"
+      (( problems++ ))
     fi
   done < <(_gs_rows)
 
@@ -437,6 +545,88 @@ _gs_doctor() {
   print -P "%F{green}everything checks out%f"
 }
 
+# doctor checks the CONFIGURATION; audit checks what the repositories on disk
+# actually contain. A setup can be perfect and still hold a repo cloned before
+# it existed, or commits authored under a since-corrected address.
+_gs_audit() {
+  emulate -L zsh
+  local deep="" limit=50
+  while (( $# )); do
+    case "$1" in
+      --deep)  deep=1; shift ;;
+      --limit) limit="$2"; shift 2 ;;
+      -*) print -u2 "gitspace audit: unknown option $1"; return 2 ;;
+      *) shift ;;
+    esac
+  done
+
+  # "Some other person committed here" is normal in a shared repository and
+  # says nothing. The question worth asking is narrower: did MY OTHER identity
+  # leak into this workspace? So the comparison set is the operator's own
+  # addresses from workspaces.conf, not every author in history.
+  local -a mine
+  mine=(${(f)"$(_gs_rows | cut -d'|' -f3)"})
+
+  local line n p m a s repo rel url ok_url bad=0 scanned=0 leaks=0
+  local -a f al
+  while IFS= read -r line; do
+    f=("${(@s:|:)line}")
+    n=$f[1]; p=$(_gs_real "$(_gs_expand "$f[2]")"); m=$f[3]; s=$f[5]
+    [[ -d "$p" ]] || continue
+    al=(${(s:,:)s})
+    print -P "%F{cyan}$n%f ${p/#$HOME/~}"
+
+    for repo in "$p"/**/.git(N/); do
+      repo=${repo:h}
+      rel=${repo#$p/}
+      (( scanned++ ))
+
+      # 1. Remote must go through one of this workspace's aliases.
+      url=$(command git -C "$repo" remote get-url origin 2>/dev/null)
+      if [[ -n "$url" ]]; then
+        ok_url=0
+        for a in $al; do [[ "$url" == "$a:"* ]] && ok_url=1; done
+        if (( ! ok_url )); then
+          print -P "  %F{red}x%f $rel  remote not on a workspace alias: $url"; (( bad++ ))
+        fi
+      fi
+
+      # 2. Working state that would block or mislead a commit.
+      if [[ -n "$(command git -C "$repo" status --porcelain 2>/dev/null)" ]]; then
+        print -P "  %F{yellow}*%f $rel  uncommitted changes"
+      fi
+
+      # 3. Identity leakage: commits here authored with one of the operator's
+      #    OTHER workspace addresses. Third-party colleagues are not a finding.
+      local -a authors wrong
+      if [[ -n "$deep" ]]; then
+        authors=(${(f)"$(command git -C "$repo" log --format=%ae 2>/dev/null | sort -u)"})
+      else
+        authors=(${(f)"$(command git -C "$repo" log -n "$limit" --format=%ae 2>/dev/null | sort -u)"})
+      fi
+      wrong=()
+      for x in $authors; do
+        [[ "$x" == "$m" ]] && continue
+        (( ${mine[(I)$x]} )) && wrong+=($x)     # one of ours, but the wrong one
+      done
+      if (( ${#wrong} )); then
+        print -P "  %F{red}x%f $rel  commits authored as ${(j:, :)wrong} - wrong workspace identity"
+        (( leaks++ ))
+      fi
+    done
+  done < <(_gs_rows)
+
+  print ""
+  print "scanned $scanned repositories"
+  if (( bad == 0 && leaks == 0 )); then
+    print -P "%F{green}no wrong remotes, no identity leakage%f"
+  else
+    (( bad ))   && print -P "%F{red}$bad with a remote outside the workspace's aliases%f"
+    (( leaks )) && print -P "%F{red}$leaks holding commits authored as another workspace%f"
+  fi
+  (( bad == 0 && leaks == 0 ))
+}
+
 gitspace() {
   local cmd="$1"; shift 2>/dev/null
   case "$cmd" in
@@ -445,6 +635,7 @@ gitspace() {
     remove|rm) _gs_remove "$@" ;;
     list|ls) _gs_list "$@" ;;
     doctor)  _gs_doctor "$@" ;;
+    audit)   _gs_audit "$@" ;;
     ""|help|-h|--help)
       print -- "gitspace - git identity per workspace directory
 
@@ -453,6 +644,7 @@ gitspace() {
                              [--name \"Full Name\"] [--as <name>]
   gitspace list                        registered workspaces
   gitspace doctor                      verify the whole setup
+  gitspace audit [--deep] [--limit N]  scan the repositories on disk
   gitspace remove <name>               unregister a workspace
 
   wclone <url> [directory]             clone with the key the target implies"

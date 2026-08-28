@@ -27,6 +27,10 @@ npm test            # full suite in an isolated HOME
   tooling deletes and re-clones the plugin directory
 - Never `eval` config input; expand tildes by substitution
 - Resolve symlinks before comparing paths: git reports physical paths
+- `${${(s:,:)x}[1]}` indexes the first CHARACTER, not the first element. Assign
+  to a real array first, or an alias like `github-acme` silently becomes `g`
+- A check that flags everything flags nothing: `audit` compares against the
+  operator's own addresses, never against every author in history
 
 ## Layout
 ```

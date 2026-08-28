@@ -24,6 +24,7 @@ _gitspace() {
     'add:register a workspace and bind an e-mail to it'
     'list:show registered workspaces'
     'doctor:verify the whole setup'
+    'audit:scan the repositories on disk for wrong remotes and identity leakage'
     'remove:unregister a workspace'
     'help:show usage'
   )
@@ -41,10 +42,16 @@ _gitspace() {
         '--gh[gh account]:account:($(_gitspace_gh_accounts))' \
         '--alias[comma-separated SSH aliases]:alias:($(_gitspace_aliases))' \
         '--name[full name used for commits]:name:' \
-        '--as[workspace name, when it differs from the directory name]:name:'
+        '--as[workspace name, when it differs from the directory name]:name:' \
+        '--sign[sign commits and tags with this workspace SSH key]'
       ;;
     remove|rm)
       _values 'workspace' $(_gitspace_workspaces)
+      ;;
+    audit)
+      _arguments \
+        '--deep[walk the whole history instead of the last N commits]' \
+        '--limit[commits per repository to inspect (default 50)]:count:'
       ;;
   esac
 }

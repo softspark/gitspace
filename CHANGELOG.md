@@ -7,6 +7,34 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.1.0 -- Proven identity, not just declared (2026-08-28)
+
+### Added
+- **SSH commit signing per workspace** -- `gitspace add --sign` signs commits and
+  tags with that workspace's own SSH key, registers the public key in
+  `~/.config/git/allowed_signers`, and leaves `git log --show-signature` able to
+  verify locally rather than only on the forge. Off unless asked for: enabling it
+  by default would change behaviour for every existing workspace.
+- **`gitspace audit`** -- walks the repositories on disk and reports remotes that
+  bypass the workspace's aliases and commits authored under another workspace's
+  address. `--deep` walks full history; `--limit N` bounds the cheap pass.
+- **Key-existence checks in `doctor`** -- an alias whose `IdentityFile` is absent
+  used to pass every check and fail only at push time. `doctor` now reports a
+  missing private key, a missing `.pub` (which signing needs), and an alias with
+  no `IdentityFile` at all.
+- **Signing consistency checks in `doctor`** -- the workspace flag, `gpgsign` in
+  the generated config, and the `allowed_signers` entry must agree; any two out
+  of three is a signature that will not verify.
+
+### Changed
+- `workspaces.conf` gains an optional sixth field carrying the signing flag.
+  Rows written by 1.0.0 keep working: an absent field means signing is off.
+- `gitspace audit` compares against the operator's *own* workspace addresses.
+  Flagging every third-party author produced sixty lines of noise on a real tree
+  and one line of signal; the narrow question is the useful one.
+
+---
+
 ## v1.0.0 -- Initial public release (2026-08-28)
 
 Published to the public npm registry with SLSA provenance. An identical build
