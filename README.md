@@ -7,16 +7,17 @@
 [![npm](https://img.shields.io/npm/v/@softspark/gitspace)](https://www.npmjs.com/package/@softspark/gitspace)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## What's New in v1.1.1
+## What's New in v1.2.0
 
-- **`doctor` notices stale hooks** — the plugin may be a symlink and always
-  current, while the installed hooks are copies. A drifted copy is now reported
-  instead of passing silently
+- **The `gh` account now follows the directory outside interactive zsh too** —
+  a `gh` wrapper on `$PATH` hands gh the bound account's token for one process
+  instead of switching the account globally, so scripts, editors and agents get
+  the right identity and two terminals stop repointing each other
+- **`--sign` refuses on git older than 2.34** rather than writing a config that
+  makes every commit in the workspace fail
 
-Earlier in 1.1.0: `--sign`, `gitspace audit`, and key-existence checks in
-`doctor`. See [CHANGELOG.md](CHANGELOG.md).
-
-See [CHANGELOG.md](CHANGELOG.md).
+Earlier: stale-hook detection in 1.1.1; `--sign`, `gitspace audit` and
+key-existence checks in 1.1.0. See [CHANGELOG.md](CHANGELOG.md).
 
 ## Table of Contents
 

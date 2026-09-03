@@ -13,8 +13,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # Through npm rather than a second file list: this job carried its own,
+      # and adding lib/resolve.sh to package.json left CI linting guard.sh
+      # without the file it sources — a red build for a green change.
       - name: ShellCheck (POSIX sh hooks)
-        run: shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh
+        run: npm run lint
 
   typecheck:
     runs-on: ubuntu-latest
