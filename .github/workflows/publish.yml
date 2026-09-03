@@ -33,13 +33,15 @@ jobs:
       - name: Install zsh and shellcheck
         run: sudo apt-get update && sudo apt-get install -y zsh shellcheck
 
+      # Through npm, like CI: the file list lived in three places, and the two
+      # that were not package.json both went red on a change that added a file.
       - name: Quality gates
         run: |
-          shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh
-          node --check bin/gitspace-install.mjs
+          npm run lint
+          npm run typecheck
           zsh -n gitspace.plugin.zsh
           zsh -n _gitspace
-          ./tests/run.sh
+          npm test
 
       - name: Tarball gate — everything the plugin needs at runtime ships
         run: |
