@@ -45,7 +45,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "lint": "shellcheck lib/resolve.sh lib/guard.sh lib/gh lib/pre-commit lib/pre-push",
+    "lint": "shellcheck lib/resolve.sh lib/guard.sh lib/gh lib/pre-commit lib/pre-push tests/run.sh",
     "typecheck": "node --check bin/gitspace-install.mjs",
     "test": "./tests/run.sh"
   }
