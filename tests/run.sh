@@ -12,6 +12,10 @@ FAIL=0
 ok()   { PASS=$((PASS + 1)); printf '  \033[32mok\033[0m   %s\n' "$1"; }
 bad()  { FAIL=$((FAIL + 1)); printf '  \033[31mFAIL\033[0m %s\n' "$1"; [ -n "${2:-}" ] && printf '       %s\n' "$2"; }
 head_() { printf '\n\033[36m%s\033[0m\n' "$1"; }
+# Called from branches that only run on a machine missing zsh or carrying an
+# older git, which is why it went years without existing: nothing here reached
+# it until the signing tests learned to take the other path.
+skip() { printf '  \033[33mskip\033[0m %s\n' "$1"; }
 
 # Physical path on purpose: git's own `includeIf gitdir:` does not resolve
 # symlinks either, and on macOS mktemp hands back /var/... while git reports
@@ -35,7 +39,8 @@ Host gitlab-acme
     User git
 SSHCFG
 
-install -m 0755 "$REPO/lib/guard.sh" "$REPO/lib/pre-commit" "$REPO/lib/pre-push" "$GITSPACE_LIB/"
+install -m 0755 "$REPO/lib/resolve.sh" "$REPO/lib/guard.sh" \
+                "$REPO/lib/pre-commit" "$REPO/lib/pre-push" "$GITSPACE_LIB/"
 
 WS="$HOME/ws/Acme"
 NESTED="$WS/nested"
@@ -174,7 +179,35 @@ Host github-signed
     IdentityFile $HOME/.ssh/id_ed25519_acme
 SSHCFG
 
-if command -v zsh >/dev/null 2>&1; then
+# git learned ssh signing in 2.34, and this suite has to run on whatever git the
+# machine has. On an older one the correct behaviour is a refusal, not a signed
+# commit: writing gpg.format = ssh there makes EVERY commit in the workspace die
+# on "bad config variable". So the branch is chosen here and both are asserted.
+GITV=$(git --version | awk '{print $3}')
+GITMAJ=${GITV%%.*}; GITMIN=${GITV#*.}; GITMIN=${GITMIN%%.*}
+if [ "$GITMAJ" -gt 2 ] || { [ "$GITMAJ" -eq 2 ] && [ "$GITMIN" -ge 34 ]; }; then
+  GIT_CAN_SIGN=1
+else
+  GIT_CAN_SIGN=0
+fi
+
+if command -v zsh >/dev/null 2>&1 && [ "$GIT_CAN_SIGN" -eq 0 ]; then
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'
+                gitspace add '$HOME/ws/OldGit' --email s@acme.test --name S \
+                             --alias github-signed --sign" 2>&1)
+  case "$out" in
+    *"cannot sign with ssh"*) ok "--sign is refused on git $GITV (needs 2.34)" ;;
+    *) bad "--sign was accepted on a git that cannot do it" "$out" ;;
+  esac
+  if [ -f "$HOME/.gitconfig-OldGit" ]; then
+    bad "the refused workspace was written anyway - commits there would break"
+  else
+    ok "nothing was written for the refused workspace"
+  fi
+fi
+
+if command -v zsh >/dev/null 2>&1 && [ "$GIT_CAN_SIGN" -eq 1 ]; then
   SIGNED="$HOME/ws/Signed"
   zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
           source '$REPO/gitspace.plugin.zsh'
@@ -314,6 +347,111 @@ if [ "$out" = "$REPO" ]; then
   ok "installer reports its package directory"
 else
   bad "wrong package directory" "got $out"
+fi
+
+# --------------------------------------------------------------------------
+head_ "gh wrapper"
+
+# The wrapper exists for the shells the chpwd hook cannot reach, so it is tested
+# the way they use it: through $PATH, with no plugin sourced anywhere.
+#
+# Two directories: the wrapper goes in the first, a stub standing in for the
+# real gh in the second. The stub answers `auth token --user X` with a token
+# naming the account, and otherwise reports the GH_TOKEN it was handed — which
+# is the whole contract in one line of output.
+GHBIN="$SANDBOX/ghbin"
+GHREAL="$SANDBOX/ghreal"
+mkdir -p "$GHBIN" "$GHREAL"
+install -m 0755 "$REPO/lib/gh" "$GHBIN/gh"
+cat > "$GHREAL/gh" <<'STUBGH'
+#!/bin/sh
+if [ "${1:-}" = auth ] && [ "${2:-}" = token ]; then
+  printf 'tok-for-%s\n' "${4:-}"
+  exit 0
+fi
+printf 'ran=%s GH_TOKEN=%s\n' "${1:-}" "${GH_TOKEN:-<unset>}"
+STUBGH
+chmod +x "$GHREAL/gh"
+
+wrapped() { ( cd "$1" && PATH="$GHBIN:$GHREAL:/usr/bin:/bin" gh "${@:2}" 2>&1 ); }
+
+out=$(wrapped "$WS" api user)
+case "$out" in
+  *"GH_TOKEN=tok-for-acme-bot"*) ok "the workspace account is used without switching" ;;
+  *) bad "wrapper did not supply the workspace account" "$out" ;;
+esac
+
+# Nested workspaces resolve by longest prefix here as everywhere else, and this
+# one binds no account: an empty field must mean "leave gh alone", not "".
+out=$(wrapped "$NESTED" api user)
+case "$out" in
+  *"GH_TOKEN=<unset>"*) ok "a workspace with no gh account is left alone" ;;
+  *) bad "wrapper invented an account for a workspace that binds none" "$out" ;;
+esac
+
+out=$(wrapped "$SANDBOX" api user)
+case "$out" in
+  *"GH_TOKEN=<unset>"*) ok "outside every workspace the call is untouched" ;;
+  *) bad "wrapper acted outside a workspace" "$out" ;;
+esac
+
+# `gh auth switch` refuses to run while GH_TOKEN is set, and `gh auth status`
+# reports the token's account as the active one. Handing a token to the command
+# people use to inspect their identity would make it lie.
+out=$(wrapped "$WS" auth status)
+case "$out" in
+  *"GH_TOKEN=<unset>"*) ok "gh auth is never given a token" ;;
+  *) bad "wrapper injected a token into gh auth" "$out" ;;
+esac
+
+# CI sets GH_TOKEN on purpose. A wrapper that overrides it decides it knows
+# better than the caller.
+out=$( cd "$WS" && PATH="$GHBIN:$GHREAL:/usr/bin:/bin" GH_TOKEN=caller-token gh api user 2>&1 )
+case "$out" in
+  *"GH_TOKEN=caller-token"*) ok "a token the caller set is not overridden" ;;
+  *) bad "wrapper overrode the caller's GH_TOKEN" "$out" ;;
+esac
+
+# With only the wrapper on $PATH there is no other gh to find — and no dirname,
+# cut or grep either, which is how this went wrong the first time: self-detection
+# that shells out cannot run when $PATH is the thing being stripped, so the
+# wrapper failed to recognise itself and exec'd itself forever.
+#
+# Bounded on purpose. A regression here is an infinite exec loop, and a test
+# that hangs reports nothing, blocks CI and has to be killed by hand; five
+# seconds and a verdict is worth more than a perfect diagnosis that never
+# arrives.
+bounded() {
+  local secs=$1; shift
+  ( "$@" ) >"$SANDBOX/bounded.out" 2>&1 &
+  local pid=$!
+  ( sleep "$secs"; kill -9 "$pid" 2>/dev/null ) >/dev/null 2>&1 &
+  local killer=$!
+  wait "$pid"; local rc=$?
+  { kill -9 "$killer"; wait "$killer"; } 2>/dev/null
+  return $rc
+}
+
+bounded 5 env -i HOME="$HOME" GITSPACE_CONF="$GITSPACE_CONF" GITSPACE_LIB="$GITSPACE_LIB" \
+             PATH="$GHBIN" "$GHBIN/gh" api user
+rc=$?
+out=$(cat "$SANDBOX/bounded.out")
+if [ "$rc" -eq 137 ]; then
+  bad "the wrapper recursed instead of reporting a missing gh (killed after 5s)" "$out"
+elif [ "$rc" -eq 127 ] && printf '%s' "$out" | grep -q 'gitspace:'; then
+  ok "with no real gh the wrapper reports it instead of recursing"
+else
+  bad "wrapper did not handle a missing real gh" "rc=$rc $out"
+fi
+
+# The point of the whole design is that no terminal changes another one's
+# account. Asserted on the source rather than on hosts.yml, which other tests in
+# this suite write for their own fixtures: the property is "this file never
+# switches", and that is exactly what it reads.
+if grep -q 'auth switch' "$REPO/lib/gh"; then
+  bad "the wrapper switches accounts - that is the global state it exists to avoid"
+else
+  ok "the wrapper never switches the active account"
 fi
 
 # --------------------------------------------------------------------------

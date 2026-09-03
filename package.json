@@ -1,6 +1,6 @@
 {
   "name": "@softspark/gitspace",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Oh My Zsh plugin binding git identity to workspace directories: per-directory commit e-mail, gh account and SSH key, optional SSH commit signing, and an audit that finds repositories already holding the wrong identity.",
   "keywords": [
     "zsh",
@@ -45,7 +45,7 @@
     "node": ">=18.0.0"
   },
   "scripts": {
-    "lint": "shellcheck lib/guard.sh lib/pre-commit lib/pre-push",
+    "lint": "shellcheck lib/resolve.sh lib/guard.sh lib/gh lib/pre-commit lib/pre-push",
     "typecheck": "node --check bin/gitspace-install.mjs",
     "test": "./tests/run.sh"
   }

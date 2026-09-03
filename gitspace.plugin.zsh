@@ -12,6 +12,7 @@
 
 typeset -g GITSPACE_CONF="${GITSPACE_CONF:-$HOME/.config/git/workspaces.conf}"
 typeset -g GITSPACE_LIB="${GITSPACE_LIB:-$HOME/.config/git/hooks}"
+typeset -g GITSPACE_BIN="${GITSPACE_BIN:-$HOME/.config/git/bin}"
 typeset -g GITSPACE_SRC="${0:A:h}"
 
 autoload -Uz add-zsh-hook
@@ -89,6 +90,17 @@ _gs_has_include() {
 # just on the forge. One line per identity; rewritten in place so a workspace
 # never ends up with two entries after --sign is re-run.
 _gs_allowed_signers() { print -r -- "${GITSPACE_CONF:h}/allowed_signers"; }
+
+_gs_git_version() { command git --version 2>/dev/null | awk '{print $3}'; }
+
+# ssh signing arrived in git 2.34. Compared numerically rather than as a string,
+# because "2.9" sorts above "2.34" the moment anyone does it lexically.
+_gs_git_can_sign_ssh() {
+  local v=$(_gs_git_version) maj min
+  [[ -n "$v" ]] || return 1
+  maj=${v%%.*}; min=${${v#*.}%%.*}
+  (( maj > 2 || (maj == 2 && min >= 34) ))
+}
 
 _gs_register_signer() {
   local mail="$1" pub="$2" f=$(_gs_allowed_signers) tmp
@@ -224,16 +236,57 @@ wclone() {
   fi
 }
 
+# --- gh wrapper on PATH ------------------------------------------------------
+
+typeset -g _GS_PATH_MARKER='# gitspace: the gh wrapper must resolve before the real gh'
+
+# Put $GITSPACE_BIN in front of the real gh, for every zsh rather than only the
+# interactive one.
+#
+# Two files, and both are needed. ~/.zshenv is the only startup file a
+# non-interactive zsh reads, which is what a script or a coding agent gets.
+# ~/.zprofile is needed because macOS rebuilds PATH from scratch in
+# /etc/zprofile — `eval $(/usr/libexec/path_helper -s)` puts /usr/local/bin
+# first and appends whatever .zshenv had set, so in a login shell the wrapper
+# ends up BEHIND the gh it is meant to shadow. Restoring the order afterwards is
+# the only way the entry survives.
+#
+# The line removes existing occurrences before prepending, rather than skipping
+# when the directory is already somewhere in PATH: after path_helper it IS in
+# PATH, just too late to matter.
+_gs_wire_path() {
+  local f
+  for f in "$HOME/.zshenv" "$HOME/.zprofile"; do
+    if [[ -f "$f" ]] && grep -qF -- "$_GS_PATH_MARKER" "$f"; then
+      print -P "%F{8}=%f ${f/#$HOME/~} already wires it"
+      continue
+    fi
+    [[ -f "$f" ]] && cp "$f" "$f.bak-gitspace"
+    {
+      print -r --
+      print -r -- "$_GS_PATH_MARKER"
+      print -r -- "path=( ${(q)GITSPACE_BIN} \${path:#${(q)GITSPACE_BIN}} )"
+    } >> "$f"
+    print -P "%F{green}v%f ${f/#$HOME/~} puts it first"
+  done
+  # And in the shell running the install, so it does not need a new terminal.
+  path=( "$GITSPACE_BIN" ${path:#$GITSPACE_BIN} )
+}
+
 # --- gitspace command --------------------------------------------------------
 
 _gs_install() {
-  mkdir -p "${GITSPACE_CONF:h}" "$GITSPACE_LIB"
+  mkdir -p "${GITSPACE_CONF:h}" "$GITSPACE_LIB" "$GITSPACE_BIN"
 
   local f
-  for f in guard.sh pre-commit pre-push; do
+  for f in resolve.sh guard.sh pre-commit pre-push; do
     install -m 0755 "$GITSPACE_SRC/lib/$f" "$GITSPACE_LIB/$f"
   done
   print -P "%F{green}v%f hooks -> $GITSPACE_LIB"
+
+  install -m 0755 "$GITSPACE_SRC/lib/gh" "$GITSPACE_BIN/gh"
+  print -P "%F{green}v%f gh wrapper -> $GITSPACE_BIN"
+  _gs_wire_path
 
   if [[ ! -f "$GITSPACE_CONF" ]]; then
     cp "$GITSPACE_SRC/templates/workspaces.conf" "$GITSPACE_CONF"
@@ -315,6 +368,18 @@ _gs_add() {
   # --sign signs with the workspace's own SSH key, so it needs exactly one.
   local signkey=""
   if [[ -n "$sign" ]]; then
+    # git learned ssh signing in 2.34. An older one rejects `gpg.format = ssh`
+    # outright — and because the setting lands in the workspace's include file,
+    # it does not fail at signing time but at EVERY commit, with
+    # "fatal: bad config variable" pointing at a file the user never wrote.
+    # Refusing here costs one check; the alternative bricks the workspace.
+    if ! _gs_git_can_sign_ssh; then
+      print -P "%F{red}x this git cannot sign with ssh: $(_gs_git_version) (needs 2.34)%f"
+      print -P "   Enabling it would write gpg.format = ssh, and every commit in"
+      print -P "   this workspace would then fail with 'bad config variable'."
+      print -P "   Upgrade git, or register the workspace without --sign."
+      return 1
+    fi
     # Split into a real array first. ${${(s:,:)x}[1]} indexes the first
     # CHARACTER of the joined result, not the first element, so an alias
     # like "github-acme" silently becomes "g".
@@ -441,7 +506,7 @@ _gs_doctor() {
   # are running code from an earlier release. Compare them.
   print -P "%F{cyan}hooks%f"
   local stale=0
-  for x in guard.sh pre-commit pre-push; do
+  for x in resolve.sh guard.sh pre-commit pre-push; do
     if [[ ! -f "$GITSPACE_LIB/$x" ]]; then
       print -P "  %F{red}x%f $x missing - run: gitspace install"; (( problems++ ))
     elif [[ ! -f "$GITSPACE_SRC/lib/$x" ]]; then
@@ -453,6 +518,38 @@ _gs_doctor() {
     fi
   done
   (( stale )) && print -P "  %F{yellow}run 'gitspace install' to refresh the installed hooks%f"
+
+  # The wrapper is the only part of this tool that reaches a shell which never
+  # sourced the plugin, and it reaches it through $PATH alone. Every check below
+  # exists because the wrapper can be perfectly installed and still never run.
+  print -P "\n%F{cyan}gh wrapper%f"
+  if [[ ! -x "$GITSPACE_BIN/gh" ]]; then
+    print -P "  %F{red}x%f $GITSPACE_BIN/gh missing - run: gitspace install"; (( problems++ ))
+  elif [[ -f "$GITSPACE_SRC/lib/gh" ]] && ! cmp -s "$GITSPACE_SRC/lib/gh" "$GITSPACE_BIN/gh"; then
+    print -P "  %F{red}x%f gh wrapper differs from the plugin source - run: gitspace install"; (( problems++ ))
+  else
+    print -P "  %F{green}v%f ${GITSPACE_BIN/#$HOME/~}/gh"
+  fi
+
+  for x in "$HOME/.zshenv" "$HOME/.zprofile"; do
+    if [[ -f "$x" ]] && grep -qF -- "$_GS_PATH_MARKER" "$x"; then
+      print -P "  %F{green}v%f ${x/#$HOME/~} wires it onto PATH"
+    else
+      print -P "  %F{red}x%f ${x/#$HOME/~} does not - run: gitspace install"; (( problems++ ))
+    fi
+  done
+
+  # The one that matters. Everything above can be right while macOS path_helper,
+  # or another tool prepending to PATH, still leaves the real gh in front.
+  local resolved=$(command -v gh 2>/dev/null)
+  if [[ -z "$resolved" ]]; then
+    print -P "  %F{8}=%f gh is not installed - the wrapper has nothing to wrap"
+  elif [[ "${resolved:A}" == "${GITSPACE_BIN:A}/gh" ]]; then
+    print -P "  %F{green}v%f gh resolves to the wrapper in this shell"
+  else
+    print -P "  %F{red}x%f gh resolves to $resolved, not the wrapper"; (( problems++ ))
+    print -P "    %F{8}PATH puts it first; open a new shell, or check what prepends after ~/.zprofile%f"
+  fi
 
   print -P "\n%F{cyan}global settings%f"
   if [[ "$(command git config --global user.useConfigOnly)" == "true" ]]; then
@@ -530,6 +627,14 @@ _gs_doctor() {
     # three must agree, or `git log --show-signature` reports an unknown signer.
     local want_sign=$f[6] cfg="$HOME/.gitconfig-$n" signers=$(_gs_allowed_signers)
     if [[ -n "$want_sign" ]]; then
+      # A workspace registered on a machine with a newer git, then used on this
+      # one, signs nothing and breaks every commit here. The config is right;
+      # the binary cannot read it.
+      if ! _gs_git_can_sign_ssh; then
+        print -P "    %F{red}x%f signing requested but git $(_gs_git_version) cannot sign with ssh (needs 2.34)"
+        print -P "      %F{8}every commit in this workspace fails with 'bad config variable'%f"
+        (( problems++ ))
+      fi
       if grep -qE '^[[:space:]]*gpgsign[[:space:]]*=[[:space:]]*true' "$cfg" 2>/dev/null; then
         print -P "    %F{green}v%f signing enabled"
       else

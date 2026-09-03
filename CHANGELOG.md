@@ -7,6 +7,51 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.2.0 -- the gh account follows the directory everywhere (2026-09-03)
+
+### Added
+- **A `gh` wrapper, so the account is right in shells the hook cannot reach.**
+  Binding the account on `chpwd` only ever worked in an interactive zsh. A
+  script, an editor or a coding agent got whatever account was last made active
+  — and because that is global state shared by every terminal, switching
+  accounts to open a pull request in one window silently repointed the others.
+
+  `~/.config/git/bin/gh` decides at the point of use and switches nothing: gh is
+  handed the bound account's token through `GH_TOKEN` for one process. Two
+  terminals in two workspaces stop fighting, and a shell that never sourced the
+  plugin still gets the right identity.
+
+  `gitspace install` puts the directory on `$PATH` through **both** `~/.zshenv`
+  and `~/.zprofile`. Both are needed: `.zshenv` is the only file a
+  non-interactive zsh reads, and macOS rebuilds `$PATH` in `/etc/zprofile`
+  afterwards, which would otherwise leave the wrapper behind the gh it shadows.
+  `doctor` checks the thing that actually matters — whether `gh` resolves to the
+  wrapper in this shell.
+
+  Every uncertainty passes the call through untouched: no config, no workspace,
+  no account bound, no token, a `gh auth` subcommand, or a `GH_TOKEN` the caller
+  set. `gh auth` is excluded deliberately — `switch` refuses to run while
+  `GH_TOKEN` is set, and `status` would report the token's account as the active
+  one, turning the command people use to check their identity into a lie.
+
+### Fixed
+- **`--sign` no longer bricks a workspace on git older than 2.34.** ssh signing
+  arrived in 2.34; before it, `gpg.format = ssh` is rejected outright. The
+  setting lands in the workspace's include file, so it did not fail at signing
+  time but at *every* commit, with `fatal: bad config variable` pointing at a
+  file the user never wrote. `add --sign` now refuses and names the version it
+  found, and `doctor` reports a workspace whose signing this git cannot honour —
+  the case where it was registered on another machine.
+- `skip` was called in three places and defined in none. Nothing reached it
+  until the signing tests learned to take the other path.
+
+### Changed
+- Workspace resolution moved to `lib/resolve.sh`, which has no side effects.
+  Sourcing `guard.sh` runs git and exits on a mismatch, which is right for a
+  hook and useless to anything else needing the same answer.
+
+---
+
 ## v1.1.1 -- doctor notices stale hooks (2026-08-28)
 
 ### Fixed

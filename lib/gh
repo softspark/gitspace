@@ -1,0 +1,97 @@
+#!/bin/sh
+# gitspace - run `gh` as the account the current workspace binds.
+#
+# The chpwd hook can only reach an interactive zsh. Everything else that runs
+# gh -- a script, an editor, a coding agent, cron -- gets whatever account was
+# last made active, which is global mutable state shared by every terminal on
+# the machine. That is not a theoretical race: switching accounts to open a pull
+# request in one window silently repoints every other window.
+#
+# So the account is decided here, at the point of use, and WITHOUT switching
+# anything: gh is handed the token of the bound account through GH_TOKEN for the
+# duration of one process. Nothing global changes, two terminals in two
+# workspaces stop fighting, and a shell that never sourced the plugin still gets
+# the right identity.
+#
+# Every uncertainty passes the call through untouched. A wrapper around a tool
+# this widely used must never be the reason gh stops working.
+set -u
+
+# Re-entry means the directory comparison below failed and this process is about
+# to exec itself. Stop, loudly. A wrapper that spins forever is worse than one
+# that is simply absent, and an infinite exec loop takes the terminal with it.
+if [ -n "${_GITSPACE_GH:-}" ]; then
+  printf 'gitspace: gh wrapper re-entered itself - refusing to loop\n' >&2
+  exit 127
+fi
+_GITSPACE_GH=1
+export _GITSPACE_GH
+
+# The real gh is the first one on $PATH that is not this file. Resolved rather
+# than hard-coded: a hard-coded path breaks on the first machine that installs
+# gh somewhere else, and comparing directories rather than filenames is what
+# keeps this from exec'ing itself forever.
+#
+# The directory comes from parameter expansion, never from `dirname`: with a
+# stripped $PATH there is no dirname to run, and a wrapper whose self-detection
+# depends on the PATH it is inspecting will fail exactly when it matters.
+case "$0" in
+  */*) _gs_self_dir=${0%/*} ;;
+  *)   _gs_self_dir=. ;;
+esac
+_gs_self_dir=$(CDPATH='' cd -- "$_gs_self_dir" 2>/dev/null && pwd -P) || _gs_self_dir=""
+_gs_real_gh=""
+_gs_ifs_saved=$IFS
+IFS=:
+for _gs_d in $PATH; do
+  [ -n "$_gs_d" ] || _gs_d=.
+  _gs_dd=$(CDPATH='' cd -- "$_gs_d" 2>/dev/null && pwd -P) || continue
+  [ "$_gs_dd" = "$_gs_self_dir" ] && continue
+  if [ -x "$_gs_dd/gh" ]; then _gs_real_gh="$_gs_dd/gh"; break; fi
+done
+IFS=$_gs_ifs_saved
+
+if [ -z "$_gs_real_gh" ]; then
+  printf 'gitspace: gh is not installed (only this wrapper is on PATH)\n' >&2
+  exit 127
+fi
+
+# `gh auth` is the one family that must never see GH_TOKEN: `switch` refuses to
+# run while it is set, and `status` reports the token's account as the active
+# one, which turns the command people use to check their identity into a lie.
+case "${1:-}" in
+  auth|"") exec "$_gs_real_gh" "$@" ;;
+esac
+
+# A token the caller chose beats one this wrapper would pick. CI sets GH_TOKEN
+# deliberately; overriding it would be the wrapper deciding it knows better.
+if [ -n "${GH_TOKEN:-}${GITHUB_TOKEN:-}" ]; then
+  exec "$_gs_real_gh" "$@"
+fi
+
+_gs_conf="${GITSPACE_CONF:-$HOME/.config/git/workspaces.conf}"
+_gs_lib="${GITSPACE_LIB:-$HOME/.config/git/hooks}"
+[ -f "$_gs_lib/resolve.sh" ] || exec "$_gs_real_gh" "$@"
+[ -f "$_gs_conf" ] || exec "$_gs_real_gh" "$@"
+
+# shellcheck source=lib/resolve.sh
+. "$_gs_lib/resolve.sh"
+
+# $PWD rather than the repository root: gh is run outside a repository often
+# enough (`gh repo clone`, `gh api`) that anchoring on git would give up exactly
+# where the account still matters.
+_gs_row=$(_gs_row_for "$(pwd -P)")
+[ -n "$_gs_row" ] || exec "$_gs_real_gh" "$@"
+
+# Field 4, by expansion rather than `cut`: see the note on dirname above. The
+# row is name|path|email|account|aliases, so strip three fields then keep one.
+_gs_acct=${_gs_row#*|}; _gs_acct=${_gs_acct#*|}; _gs_acct=${_gs_acct#*|}
+_gs_acct=${_gs_acct%%|*}
+[ -n "$_gs_acct" ] || exec "$_gs_real_gh" "$@"
+
+# Not logged in as that account, or gh too old for --user: say nothing and let
+# gh run as it would have. The wrapper is an improvement, not a precondition.
+_gs_token=$("$_gs_real_gh" auth token --user "$_gs_acct" 2>/dev/null) || _gs_token=""
+[ -n "$_gs_token" ] || exec "$_gs_real_gh" "$@"
+
+GH_TOKEN="$_gs_token" exec "$_gs_real_gh" "$@"
