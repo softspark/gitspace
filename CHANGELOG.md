@@ -7,7 +7,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## v1.3.0 (release candidate, 2026-09-06)
+## v1.3.0 -- Structured audits and workspace discovery (2026-09-06)
 
 - Export local repository findings as JSON or SARIF 2.1.0.
 - Include linked worktrees and assign nested repositories to their owning workspace.

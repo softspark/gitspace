@@ -7,7 +7,7 @@
 [![npm](https://img.shields.io/npm/v/@softspark/gitspace)](https://www.npmjs.com/package/@softspark/gitspace)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## What's New in v1.3.0 (release candidate)
+## What's New in v1.3.0
 
 - Audit exports JSON and SARIF 2.1.0 for automation and Code Scanning.
 - Nested workspaces and linked worktrees are audited under their owning workspace.

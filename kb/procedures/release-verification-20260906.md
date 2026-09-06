@@ -28,9 +28,9 @@ No global plugin installation, real home rewrite or live-account switch ran.
 The full isolated identity/signing/gh-wrapper tests validate the candidate;
 this limited published smoke does not replace a new release's installation test.
 
-## Candidate status
+## Pre-release validation
 
-Version 1.3.0 is prepared locally and **has not been published**. Its new
+Version 1.3.0 was validated locally before publication. Its new
 audit commands are tested against real temporary filesystem/configuration
 fixtures, including secret redaction and SARIF output. Existing text behavior
 is retained except for documented repairs.
