@@ -50,6 +50,8 @@ _gitspace() {
       ;;
     audit)
       _arguments \
+        '--json[emit a machine-readable report without remote URLs or email addresses]' \
+        '--sarif[emit SARIF 2.1.0 for code scanning]' \
         '--deep[walk the whole history instead of the last N commits]' \
         '--limit[commits per repository to inspect (default 50)]:count:'
       ;;

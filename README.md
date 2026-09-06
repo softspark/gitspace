@@ -7,17 +7,11 @@
 [![npm](https://img.shields.io/npm/v/@softspark/gitspace)](https://www.npmjs.com/package/@softspark/gitspace)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## What's New in v1.2.0
+## What's New in v1.3.0 (release candidate)
 
-- **The `gh` account now follows the directory outside interactive zsh too** —
-  a `gh` wrapper on `$PATH` hands gh the bound account's token for one process
-  instead of switching the account globally, so scripts, editors and agents get
-  the right identity and two terminals stop repointing each other
-- **`--sign` refuses on git older than 2.34** rather than writing a config that
-  makes every commit in the workspace fail
-
-Earlier: stale-hook detection in 1.1.1; `--sign`, `gitspace audit` and
-key-existence checks in 1.1.0. See [CHANGELOG.md](CHANGELOG.md).
+- Audit exports JSON and SARIF 2.1.0 for automation and Code Scanning.
+- Nested workspaces and linked worktrees are audited under their owning workspace.
+- Remote URLs are redacted from audit output. Invalid history limits are rejected.
 
 ## Table of Contents
 
@@ -29,6 +23,7 @@ key-existence checks in 1.1.0. See [CHANGELOG.md](CHANGELOG.md).
 - [Commands](#commands)
 - [Architecture](#architecture)
 - [Key Features](#key-features)
+- [Documentation](#documentation)
 - [Known Limits](#known-limits)
 - [Contributing](#contributing)
 - [Security](#security)
@@ -207,7 +202,7 @@ hooks can be two releases behind while everything else reads as up to date. Run
 | `gitspace add <path> --email <addr>` | register a workspace; `--gh`, `--alias`, `--name`, `--as`, `--sign` optional |
 | `gitspace list` | show registered workspaces |
 | `gitspace doctor` | verify the whole setup, exit 1 on problems |
-| `gitspace audit [--deep] [--limit N]` | scan repositories for wrong remotes and identity leakage |
+| `gitspace audit [--deep] [--limit N] [--json\|--sarif]` | scan repositories for wrong remotes and identity leakage |
 | `gitspace remove <name>` | unregister a workspace (files left on disk) |
 | `wclone <url> [dir]` | clone with the key the target directory implies |
 | `gitspace-install` | npm-side installer: link the plugin, patch `~/.zshrc` |
@@ -279,12 +274,19 @@ for workspaces that already exist.
 ```bash
 gitspace audit            # cheap: last 50 commits per repository
 gitspace audit --deep     # whole history
+gitspace audit --json     # machine-readable findings
+gitspace audit --sarif    # SARIF 2.1.0 for Code Scanning
 ```
 
 `doctor` checks the configuration; `audit` checks the repositories. It reports
 remotes that bypass the workspace's aliases and commits authored under **another
 of your** workspace addresses. A colleague's address is not a finding — flagging
 every third-party author turns the report into noise.
+
+## Documentation
+
+- [Setup guide](kb/howto/setup.md)
+- [Configuration and audit formats](kb/reference/configuration.md)
 
 ## Known Limits
 

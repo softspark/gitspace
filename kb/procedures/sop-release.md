@@ -4,9 +4,9 @@ category: procedures
 section: procedures
 service: gitspace
 tags: [sop, release, npm, provenance, supply-chain, versioning]
-version: "1.0.0"
+version: "1.3.0"
 created: "2026-08-28"
-last_updated: "2026-08-28"
+last_updated: "2026-09-06"
 description: "Version bump, changelog, quality gates, supply-chain gates, tagging and npm publish for @softspark/gitspace."
 ---
 

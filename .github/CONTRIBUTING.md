@@ -29,10 +29,16 @@ fails, fix the cause. Never add AI co-authorship trailers.
 
 ## CI Requirements
 
+Maintainer procedures:
+
+- [Pre-commit gate](../kb/procedures/sop-pre-commit.md)
+- [Release procedure](../kb/procedures/sop-release.md)
+- [Post-release checks](../kb/procedures/sop-post-release-testing.md)
+
 Everything below must pass locally before you open a PR:
 
 ```bash
-shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh
+npm run lint
 node --check bin/gitspace-install.mjs
 zsh -n gitspace.plugin.zsh && zsh -n _gitspace
 ./tests/run.sh

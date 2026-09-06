@@ -22,18 +22,19 @@ Process:
 
 ## Security Design
 
-### No credential handling
+### Credentials are scoped to the invoked gh process
 
-gitspace never reads, stores or transmits credentials. It reads the *name* of
-the active `gh` account from `~/.config/gh/hosts.yml` and ignores every other
-field in that file, tokens included. SSH keys are referenced by `~/.ssh/config`
-alias only; the plugin never opens a key file.
+The `gh` wrapper asks `gh auth token --user` for the account bound to the
+current workspace and passes it through `GH_TOKEN` only to that command.
+It does not switch the globally active account or save the token. Tokens
+already supplied by the caller take precedence. SSH keys remain referenced
+through SSH aliases. Audit JSON and SARIF omit remote URLs and email addresses.
 
 ### No network access
 
 The plugin makes no network requests of its own. `wclone` shells out to
-`git ls-remote` and `git clone`, and the announcement hook may call
-`gh auth switch`, which is local. Nothing is phoned home; there is no telemetry.
+`git ls-remote` and `git clone`; the wrapped `gh` command makes the requests
+the caller selected. The local audit does not contact remotes. There is no telemetry.
 
 ### Explicit installation
 

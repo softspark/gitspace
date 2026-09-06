@@ -7,6 +7,13 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## v1.3.0 (release candidate, 2026-09-06)
+
+- Export local repository findings as JSON or SARIF 2.1.0.
+- Include linked worktrees and assign nested repositories to their owning workspace.
+- Reject missing, zero or invalid history limits and redact remote URLs in audit output.
+- Document configuration, setup and current release verification.
+
 ## v1.2.0 -- the gh account follows the directory everywhere (2026-09-03)
 
 ### Added

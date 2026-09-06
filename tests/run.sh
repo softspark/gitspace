@@ -118,8 +118,8 @@ head_ "pre-push"
 new_repo "$WS/push"
 git -C "$WS/push" commit -q -m t
 git -C "$WS/push" remote add origin "github-acme:acme/thing.git"
-printf 'github.com:\n  user: acme-bot\n' > "$HOME/.config/gh/hosts.yml" 2>/dev/null || {
-  mkdir -p "$HOME/.config/gh"; printf 'github.com:\n  user: acme-bot\n' > "$HOME/.config/gh/hosts.yml"; }
+mkdir -p "$HOME/.config/gh"
+printf 'github.com:\n  user: acme-bot\n' > "$HOME/.config/gh/hosts.yml"
 if (cd "$WS/push" && sh "$GITSPACE_LIB/pre-push" origin "github-acme:acme/thing.git" </dev/null >/dev/null 2>&1); then
   ok "push with a matching alias and gh account passes"
 else
@@ -299,10 +299,72 @@ if command -v zsh >/dev/null 2>&1; then
   new_repo "$WS/thirdparty"
   git -C "$WS/thirdparty" -c user.email=colleague@example.com -c user.name=C \
       commit -q -m ext --no-verify
+  out=$(zsh -c "source '$REPO/gitspace.plugin.zsh'; gitspace audit" 2>&1)
   case "$out" in
     *"thirdparty"*) bad "audit flagged a third-party author as a finding" ;;
     *) ok "audit ignores third-party authors" ;;
   esac
+
+  # The JSON contract covers real repositories, hostile URLs, nested ownership,
+  # linked worktrees and escaped paths. No token or e-mail belongs in the report.
+  audit_repo="$WS/quote\"slash\\repo"$'\t\nż'
+  new_repo "$audit_repo"
+  git -C "$audit_repo" remote add origin 'https://user:secret-token@example.test/r.git'
+  git -C "$WS/leaky" worktree add -q --detach "$WS/linked" HEAD
+  git -C "$WS/leaky" worktree add -q --detach "$WS/.worktrees/leaky" HEAD
+  git -C "$NESTED/repo" worktree add -q --detach "$NESTED/.worktrees/owned" HEAD
+  printf 'uncommitted fixture\n' > "$NESTED/.worktrees/owned/audit-fixture.txt"
+  git -C "$WS/leaky" config core.fsmonitor "touch '$SANDBOX/fsmonitor-ran'"
+  root_repo="$SANDBOX/root-workspace"
+  new_repo "$root_repo"
+  git -C "$root_repo" remote add origin 'https://example.test/r.git'
+  printf 'Root|%s|dev@acme.test||github-acme\n' "$root_repo" >> "$GITSPACE_CONF"
+  zsh -c "source '$REPO/gitspace.plugin.zsh'; gitspace audit --json" > "$SANDBOX/audit.json"
+  audit_code=$?
+  if [ "$audit_code" -eq 1 ] && node --input-type=module - "$SANDBOX/audit.json" "$audit_repo" "$NESTED/repo" "$WS/linked" "$root_repo" <<'JS'
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const [file, quoted, nested, linked, root] = process.argv.slice(2);
+const raw = readFileSync(file, 'utf8');
+const report = JSON.parse(raw);
+assert.equal(report.schemaVersion, 1);
+assert(report.findings.some(f => f.repository === quoted && f.ruleId === 'remote-alias'));
+assert(report.findings.some(f => f.repository === linked && f.ruleId === 'identity-leak'));
+assert.equal(report.findings.filter(f => f.repository.endsWith('/.worktrees/leaky') && f.ruleId === 'identity-leak').length, 1);
+assert(report.findings.some(f => f.repository.endsWith('/.worktrees/owned') && f.ruleId === 'dirty-worktree'));
+assert(!report.findings.some(f => f.repository.endsWith('/.worktrees/owned') && f.ruleId === 'identity-leak'));
+assert.equal(report.findings.filter(f => f.repository === root && f.ruleId === 'remote-alias').length, 1);
+assert(!report.findings.some(f => f.repository === nested && f.ruleId === 'identity-leak'));
+assert(!report.findings.some(f => f.repository.endsWith('/thirdparty') && f.ruleId === 'identity-leak'));
+assert(!raw.includes('secret-token'));
+assert(!raw.includes('@acme.test'));
+JS
+  then ok "JSON audit detects leaks and worktrees without leaking URL credentials or misclassifying nested repos"
+  else bad "JSON audit contract failed"; fi
+  if [ ! -e "$SANDBOX/fsmonitor-ran" ]; then
+    ok "audit does not execute repository fsmonitor hooks"
+  else bad "audit executed a repository hook"; fi
+
+  zsh -c "source '$REPO/gitspace.plugin.zsh'; gitspace audit --sarif" > "$SANDBOX/audit.sarif"
+  if node --input-type=module - "$SANDBOX/audit.sarif" "$audit_repo" <<'JS'
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+const raw = readFileSync(process.argv[2], 'utf8');
+const report = JSON.parse(raw);
+assert.equal(report.version, '2.1.0');
+assert(report.runs[0].results.some(result => result.ruleId === 'remote-alias'
+  && result.level === 'error'
+  && fileURLToPath(result.locations[0].physicalLocation.artifactLocation.uri) === process.argv[3]));
+assert(!raw.includes('secret-token'));
+JS
+  then ok "SARIF maps real findings to correctly escaped artifact URIs"
+  else bad "SARIF audit contract failed"; fi
+
+  for invalid in '--limit' '--limit 0' '--limit nope' '--unknown' 'stray'; do
+    zsh -c "source '$REPO/gitspace.plugin.zsh'; gitspace audit $invalid" >/dev/null 2>&1
+    if [ "$?" -eq 2 ]; then ok "audit rejects $invalid"; else bad "audit accepted $invalid"; fi
+  done
 else
   skip "audit tests (zsh not installed)"
 fi

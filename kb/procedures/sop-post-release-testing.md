@@ -4,9 +4,9 @@ category: procedures
 section: procedures
 service: gitspace
 tags: [sop, testing, smoke-test, provenance, npm, post-release]
-version: "1.0.0"
+version: "1.3.0"
 created: "2026-08-28"
-last_updated: "2026-08-28"
+last_updated: "2026-09-06"
 description: "Smoke-test a published @softspark/gitspace release from npm in an isolated HOME, without disturbing the maintainer's own setup."
 ---
 
@@ -85,6 +85,11 @@ npm view "@softspark/gitspace@X.Y.Z" --json | python3 -c \
   "import json,sys; d=json.load(sys.stdin); \
    assert d['dist']['attestations']['provenance']['predicateType']=='https://slsa.dev/provenance/v1'; \
    print('PROVENANCE OK')"
+# The global install has no lockfile. Audit the release as a dependency:
+GITSPACE_AUDIT_DIR=$(mktemp -d)
+cd "$GITSPACE_AUDIT_DIR"
+npm init -y
+npm install "@softspark/gitspace@X.Y.Z" --ignore-scripts
 npm audit signatures --registry https://registry.npmjs.org
 ```
 
@@ -134,3 +139,9 @@ Every quality gate passed; only the last step failed. Flip repository visibility
 **A fresh package 404s for a while.** `npm publish` printed
 `+ @softspark/gitspace@1.0.0` and the registry answered `404` for roughly 100
 seconds. Poll rather than diagnose.
+
+## Verification on 2026-09-06
+
+The published 1.2.0 package was checked separately from the unshipped
+1.3.0 candidate. See [the execution record](release-verification-20260906.md)
+for completed checks and remaining release checks.

@@ -4,9 +4,9 @@ category: procedures
 section: procedures
 service: gitspace
 tags: [sop, quality-gate, pre-commit, shellcheck, tests]
-version: "1.0.0"
+version: "1.3.0"
 created: "2026-08-28"
-last_updated: "2026-08-28"
+last_updated: "2026-09-06"
 description: "Checks that must pass before every commit to gitspace."
 ---
 
@@ -17,7 +17,7 @@ costs seconds instead of a round trip.
 
 ## Checklist
 
-- [ ] `shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh` — 0 findings
+- [ ] `npm run lint` (includes resolver, gh wrapper and guards) — 0 findings
 - [ ] `node --check bin/gitspace-install.mjs` — parses
 - [ ] `zsh -n gitspace.plugin.zsh && zsh -n _gitspace` — parse
 - [ ] `./tests/run.sh` — all pass
@@ -29,7 +29,7 @@ costs seconds instead of a round trip.
 ## Quick run
 
 ```bash
-shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh \
+npm run lint \
   && node --check bin/gitspace-install.mjs \
   && zsh -n gitspace.plugin.zsh && zsh -n _gitspace \
   && ./tests/run.sh

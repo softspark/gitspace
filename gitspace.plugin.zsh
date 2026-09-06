@@ -663,15 +663,70 @@ _gs_doctor() {
 # doctor checks the CONFIGURATION; audit checks what the repositories on disk
 # actually contain. A setup can be perfect and still hold a repo cloned before
 # it existed, or commits authored under a since-corrected address.
+# Escape every JSON control character without adding a runtime dependency.
+_gs_json_string() {
+  emulate -L zsh
+  local value="$1" char encoded
+  integer index code
+  print -rn -- '"'
+  for (( index=1; index <= ${#value}; index++ )); do
+    char=$value[index]
+    case "$char" in
+      '"') print -rn -- '\"' ;;
+      '\') print -rn -- '\\' ;;
+      *) printf -v code '%d' "'$char"
+         if (( code < 32 )); then
+           printf -v encoded '\\u%04x' "$code"
+           print -rn -- "$encoded"
+         else
+           print -rn -- "$char"
+         fi ;;
+    esac
+  done
+  print -rn -- '"'
+}
+
+_gs_file_uri() {
+  emulate -L zsh
+  local LC_ALL=C value="$1" char encoded
+  integer index code
+  print -rn -- 'file://'
+  for (( index=1; index <= ${#value}; index++ )); do
+    char=$value[index]
+    if [[ "$char" == [a-zA-Z0-9/_.~-] ]]; then
+      print -rn -- "$char"
+    else
+      printf -v code '%d' "'$char"
+      printf -v encoded '%%%02X' "$code"
+      print -rn -- "$encoded"
+    fi
+  done
+}
+
+_gs_audit_finding() {
+  if [[ "$1" == sarif ]]; then
+    print -r -- "{\"ruleId\":\"$2\",\"level\":\"$3\",\"message\":{\"text\":\"$2\"},\"locations\":[{\"physicalLocation\":{\"artifactLocation\":{\"uri\":$(_gs_json_string "$(_gs_file_uri "$4")")}}}]}"
+  else
+    print -r -- "{\"ruleId\":\"$2\",\"level\":\"$3\",\"repository\":$(_gs_json_string "$4") }"
+  fi
+}
+
 _gs_audit() {
   emulate -L zsh
-  local deep="" limit=50
+  local deep="" limit=50 json=""
+  local -a findings
   while (( $# )); do
     case "$1" in
       --deep)  deep=1; shift ;;
-      --limit) limit="$2"; shift 2 ;;
+      --json) json=1; shift ;;
+      --sarif) json=sarif; shift ;;
+      --limit)
+        if (( $# < 2 )) || [[ "$2" != <1-> ]]; then
+          print -u2 'gitspace audit: --limit requires a positive integer'; return 2
+        fi
+        limit="$2"; shift 2 ;;
       -*) print -u2 "gitspace audit: unknown option $1"; return 2 ;;
-      *) shift ;;
+      *) print -u2 "gitspace audit: unexpected argument $1"; return 2 ;;
     esac
   done
 
@@ -689,10 +744,12 @@ _gs_audit() {
     n=$f[1]; p=$(_gs_real "$(_gs_expand "$f[2]")"); m=$f[3]; s=$f[5]
     [[ -d "$p" ]] || continue
     al=(${(s:,:)s})
-    print -P "%F{cyan}$n%f ${p/#$HOME/~}"
+    [[ -n "$json" ]] || print -P "%F{cyan}$n%f ${p/#$HOME/~}"
 
-    for repo in "$p"/**/.git(N/); do
+    for repo in "$p"/**/.git(ND); do
       repo=${repo:h}
+      # A nested workspace owns its repositories; a linked worktree has a .git file.
+      [[ "$(_gs_row_for "$repo")" == "$line" ]] || continue
       rel=${repo#$p/}
       (( scanned++ ))
 
@@ -702,13 +759,16 @@ _gs_audit() {
         ok_url=0
         for a in $al; do [[ "$url" == "$a:"* ]] && ok_url=1; done
         if (( ! ok_url )); then
-          print -P "  %F{red}x%f $rel  remote not on a workspace alias: $url"; (( bad++ ))
+          [[ -n "$json" ]] || print -r -- "  x $rel  remote not on a workspace alias (URL omitted)"
+          findings+=("$(_gs_audit_finding "$json" remote-alias error "$repo")")
+          (( bad++ ))
         fi
       fi
 
       # 2. Working state that would block or mislead a commit.
-      if [[ -n "$(command git -C "$repo" status --porcelain 2>/dev/null)" ]]; then
-        print -P "  %F{yellow}*%f $rel  uncommitted changes"
+      if [[ -n "$(GIT_OPTIONAL_LOCKS=0 command git -C "$repo" -c core.fsmonitor=false status --porcelain 2>/dev/null)" ]]; then
+        [[ -n "$json" ]] || print -r -- "  * $rel  uncommitted changes"
+        findings+=("$(_gs_audit_finding "$json" dirty-worktree warning "$repo")")
       fi
 
       # 3. Identity leakage: commits here authored with one of the operator's
@@ -725,12 +785,22 @@ _gs_audit() {
         (( ${mine[(I)$x]} )) && wrong+=($x)     # one of ours, but the wrong one
       done
       if (( ${#wrong} )); then
-        print -P "  %F{red}x%f $rel  commits authored as ${(j:, :)wrong} - wrong workspace identity"
+        [[ -n "$json" ]] || print -r -- "  x $rel  commits authored as ${(j:, :)wrong} - wrong workspace identity"
+        findings+=("$(_gs_audit_finding "$json" identity-leak error "$repo")")
         (( leaks++ ))
       fi
     done
   done < <(_gs_rows)
 
+  if [[ -n "$json" ]]; then
+    if [[ "$json" == sarif ]]; then
+      print -r -- "{\"version\":\"2.1.0\",\"runs\":[{\"tool\":{\"driver\":{\"name\":\"gitspace\"}},\"results\":[${(j:,:)findings}]}]}"
+    else
+      print -r -- "{\"schemaVersion\":1,\"tool\":\"gitspace\",\"scanned\":$scanned,\"findings\":[${(j:,:)findings}]}"
+    fi
+    (( bad == 0 && leaks == 0 ))
+    return $?
+  fi
   print ""
   print "scanned $scanned repositories"
   if (( bad == 0 && leaks == 0 )); then
@@ -759,7 +829,7 @@ gitspace() {
                              [--name \"Full Name\"] [--as <name>]
   gitspace list                        registered workspaces
   gitspace doctor                      verify the whole setup
-  gitspace audit [--deep] [--limit N]  scan the repositories on disk
+  gitspace audit [--deep] [--limit N] [--json|--sarif]  scan repositories
   gitspace remove <name>               unregister a workspace
 
   wclone <url> [directory]             clone with the key the target implies"
