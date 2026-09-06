@@ -142,6 +142,10 @@ seconds. Poll rather than diagnose.
 
 ## Verification on 2026-09-06
 
+Published 1.3.0: exact release-head CI and publish workflow passed;
+registry version, provenance, cryptographic signatures and installed CLI smoke
+were verified. See [the executed publication record](release-verification-20260906.md#published-130).
+
 The published 1.2.0 package was checked separately from the unshipped
 1.3.0 candidate. See [the execution record](release-verification-20260906.md)
 for completed checks and remaining release checks.

@@ -6,10 +6,34 @@ tags: [release, verification, provenance]
 version: "1.3.0"
 created: "2026-09-06"
 last_updated: "2026-09-06"
-description: "Executed checks for published 1.2.0 and the 1.3.0 candidate."
+description: "Published 1.3.0 verification, pre-release gates and earlier smoke evidence."
 ---
 
 # Executed verification
+
+## Published 1.3.0
+
+Published on 2026-09-06 from commit `1112d2137a2618f8fbf1c258232dbf4afbdb81e0`.
+
+- [Release](https://github.com/softspark/gitspace/releases/tag/v1.3.0)
+- [Exact release-head CI](https://github.com/softspark/gitspace/actions/runs/34051724336): success
+- [Publish workflow](https://github.com/softspark/gitspace/actions/runs/34051900056): success
+
+Registry metadata returned the exact version and SLSA v1 provenance. A fresh
+consumer lockfile installed gitspace 1.3.0, mage2x 1.4.0 and jira-mcp 1.11.0 with
+scripts disabled. Cryptographic verification completed successfully:
+**4 verified registry signatures and 3 verified attestations**. This is a new
+verification of the released artifacts, separate from the older smoke below.
+
+All three packages contained their expected runtime files, LICENSE and NOTICE;
+tests, KB and .github were absent. Syntax checks preceded CLI execution.
+
+The installed plugin passed help/list and JSON/SARIF audit parsing. The npm
+installer created a symlink in a temporary ZSH_CUSTOM, refused an existing
+real directory, and preserved the real .zshrc modification time.
+
+## Earlier published-version smoke
+
 
 The published package `@softspark/gitspace@1.2.0` was installed as an
 exact dependency in a temporary npm project, with `--ignore-scripts` and a
