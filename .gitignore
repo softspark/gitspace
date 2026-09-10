@@ -15,3 +15,4 @@ settings.local.json
 /.agents/
 /.codex/
 .local/
+/AGENTS.md
