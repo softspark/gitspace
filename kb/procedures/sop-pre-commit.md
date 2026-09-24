@@ -6,14 +6,15 @@ service: gitspace
 tags: [sop, quality-gate, pre-commit, shellcheck, tests]
 version: "1.3.0"
 created: "2026-08-28"
-last_updated: "2026-09-06"
+last_updated: "2026-09-24"
 description: "Checks that must pass before every commit to gitspace."
 ---
 
 # SOP: Pre-Commit Quality Gate
 
-Run before every commit. CI runs the same checks, but finding a failure locally
-costs seconds instead of a round trip.
+Run before every commit. No CI runs these on a push or a pull request; the only
+other place they run is `npm run release`, and a failure found there blocks the
+tag instead of a commit.
 
 ## Checklist
 

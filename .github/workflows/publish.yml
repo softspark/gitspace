@@ -3,6 +3,9 @@ on:
   push:
     tags: ['v*']
 
+# Publish only. Every gate ran locally in scripts/release.sh before this tag
+# existed; nothing here re-runs them. See kb/procedures/sop-release.md.
+
 # Default to read-only; the publish job elevates to exactly what it needs.
 permissions:
   contents: read
@@ -14,48 +17,21 @@ jobs:
       contents: write   # create the GitHub Release
       id-token: write   # required for --provenance (OIDC attestation)
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - uses: actions/setup-node@v7
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
           registry-url: 'https://registry.npmjs.org'
           scope: '@softspark'
 
-      # A tag can be pushed from a commit that never ran the local gate, so the
-      # whole contract is re-checked here rather than trusted.
+      # Tagging the wrong commit is easy and invisible until someone installs
+      # the result.
       - name: Tag matches package.json
         run: |
           PKG=$(node -p "require('./package.json').version")
           TAG="${GITHUB_REF_NAME#v}"
           [ "$PKG" = "$TAG" ] || { echo "::error::package.json is $PKG but the tag is $TAG"; exit 1; }
-
-      - name: Install zsh and shellcheck
-        run: sudo apt-get update && sudo apt-get install -y zsh shellcheck
-
-      # Through npm, like CI: the file list lived in three places, and the two
-      # that were not package.json both went red on a change that added a file.
-      - name: Quality gates
-        run: |
-          npm run lint
-          npm run typecheck
-          zsh -n gitspace.plugin.zsh
-          zsh -n _gitspace
-          npm test
-
-      - name: Tarball gate — everything the plugin needs at runtime ships
-        run: |
-          tarball="$(npm pack 2>/dev/null | tail -n1)"
-          tar -tzf "$tarball" | sed 's#^package/##' > /tmp/pack-entries.txt
-          echo "Tarball entries:"; cat /tmp/pack-entries.txt
-          missing=0
-          for f in gitspace.plugin.zsh _gitspace lib/guard.sh lib/pre-commit lib/pre-push \
-                   templates/workspaces.conf bin/gitspace-install.mjs LICENSE NOTICE; do
-            grep -qx "$f" /tmp/pack-entries.txt || { echo "::error::missing from tarball: $f"; missing=1; }
-          done
-          # npm ships LICENSE on its own but never NOTICE; Apache-2.0 §4(d) makes
-          # carrying it an obligation, so its absence is a release blocker.
-          exit $missing
 
       # Public npm. Provenance is mandatory here (Golden Rule 8) and works only
       # because the package is published with public access; the private

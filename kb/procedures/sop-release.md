@@ -3,14 +3,26 @@ title: "SOP: Release Creation"
 category: procedures
 section: procedures
 service: gitspace
-tags: [sop, release, npm, provenance, supply-chain, versioning]
+tags: [sop, release, npm, provenance, supply-chain, versioning, local-gates]
 version: "1.3.0"
 created: "2026-08-28"
-last_updated: "2026-09-06"
-description: "Version bump, changelog, quality gates, supply-chain gates, tagging and npm publish for @softspark/gitspace."
+last_updated: "2026-09-24"
+description: "Version bump, changelog, and the single release command that gates, tags and publishes @softspark/gitspace."
 ---
 
 # SOP: Release Creation
+
+```bash
+npm run release -- X.Y.Z             # gates, Linux run, pack smoke, tag, push, watch publish
+npm run release -- X.Y.Z --dry-run   # everything up to the tag, then prints the rest
+```
+
+`scripts/release.sh` is the only supported way to create a release tag. GitHub
+Actions no longer tests anything: there is no CI on pushes or pull requests,
+and `publish.yml` only turns a tag into an npm package and a GitHub Release. A
+tag made by hand ships whatever the commit holds, gated or not. The shared model
+is the SoftSpark SOP "Local Release Gates, Publish-Only CI"; this page keeps
+what is specific to gitspace.
 
 ## 1. Decide the version
 
@@ -27,7 +39,9 @@ A guard that starts refusing something it used to allow is a **major** bump even
 though nothing in the API changed — existing setups stop working, which is the
 definition of breaking.
 
-## 2. Update the version
+## 2. Prepare the release commit
+
+The script checks these; it does not write them.
 
 ```bash
 npm version --no-git-tag-version X.Y.Z
@@ -36,65 +50,57 @@ npm version --no-git-tag-version X.Y.Z
 `package.json` is the only file carrying a version; there is no companion
 manifest to keep in sync.
 
-## 3. Write the CHANGELOG entry
-
-`## vX.Y.Z -- Title (YYYY-MM-DD)` with Added / Changed / Fixed / Removed.
-Latest version at the top, `---` between versions, bold feature names,
-verb-first descriptions.
-
-## 4. Update the README
-
-Collapse any older `## What's New` block. Exactly one may exist at a time;
-history belongs in the CHANGELOG.
-
-## 5. Quality gates
+- **CHANGELOG:** `## vX.Y.Z -- Title (YYYY-MM-DD)` with Added / Changed / Fixed /
+  Removed. Latest version at the top, `---` between versions, bold feature
+  names, verb-first descriptions.
+- **README:** collapse any older `## What's New` block. Exactly one may exist at
+  a time; history belongs in the CHANGELOG.
 
 ```bash
-shellcheck lib/guard.sh lib/pre-commit lib/pre-push tests/run.sh \
-  && node --check bin/gitspace-install.mjs \
-  && zsh -n gitspace.plugin.zsh && zsh -n _gitspace \
-  && ./tests/run.sh
+git commit -am "chore: release vX.Y.Z"
+git push origin main
 ```
 
-## 6. Supply-chain gates
-
-The required gates depend on the registry, because npm only attests packages
-published with public access. CI checks the pairing automatically; these are the
-same assertions by hand.
-
-**Phase 1 — GitHub Packages (used for 1.0.0 internal validation):**
+## 3. Release
 
 ```bash
-# Strip comments: both phases are described in the workflow's own prose, and a
-# raw grep matches the comment rather than the configuration.
-CODE=$(sed 's/#.*//' .github/workflows/publish.yml)
-printf '%s' "$CODE" | grep -q 'registry-url:.*npm\.pkg\.github\.com'
-printf '%s' "$CODE" | grep -q 'packages: write'
-printf '%s' "$CODE" | grep -q -- '--provenance' && echo "WRONG: provenance cannot work here"
-grep -q 'ignore-scripts=true' .npmrc
+npm run release -- X.Y.Z
 ```
 
-Provenance is unavailable for a private package. Claiming it in the workflow
-would fail the publish, and — worse — a reader would believe the release is
-attested when it cannot be.
+It stops at the first failure. Logs go to `${TMPDIR:-/tmp}/gitspace-release-X.Y.Z/`.
 
-**Phase 2 — public npm (current):**
+| Step | What it checks or does |
+|---|---|
+| 1. Preconditions | on `main`, clean tree, `main` equals `origin/main` after a fetch, `X.Y.Z` is semver, `vX.Y.Z` exists neither locally nor on origin |
+| 2. Version and notes | `package.json` is `X.Y.Z`, CHANGELOG has `## vX.Y.Z `, `HEAD` is `chore: release vX.Y.Z` |
+| 3. Gates | `npm run lint` (ShellCheck over `lib/`, `tests/run.sh`, `scripts/release.sh`), `npm run typecheck`, `zsh -n` on both zsh sources, `npm test`, required files, supply-chain gates |
+| 4. Linux run | the same gate in a throwaway `node:24` container, repository copied in, run as the non-root `node` user |
+| 5. Build and smoke | `npm pack`; the tarball must carry `lib/`, `templates/`, `bin/`, both zsh sources, `LICENSE` and `NOTICE`; installed into a scratch prefix, `gitspace-install path` must print a directory holding the plugin |
+| 6. Tag and push | lightweight tag `vX.Y.Z` on `HEAD`, push `main`, then `git push origin refs/tags/vX.Y.Z` |
+| 7. Watch publish | `gh run watch` on the tag's `publish.yml` run, then `npm view @softspark/gitspace@X.Y.Z` and the GitHub Release |
 
-```bash
-CODE=$(sed 's/#.*//' .github/workflows/publish.yml)
-printf '%s' "$CODE" | grep -q -- '--provenance'
-printf '%s' "$CODE" | grep -q 'id-token: write'
-grep -q 'ignore-scripts=true' .npmrc
-```
+**Why the Linux run applies here.** The hooks are POSIX sh, the plugin is zsh,
+and the suite is bash with path handling that differs between macOS and Linux
+(`/var` against `/private/var`, `path_helper`). The old CI ran the suite on both
+systems for this reason. It needs Docker running.
 
-All three must exit 0. An unsigned public release is a regression and has to be
-re-published.
+**npm keeps NOTICE out on its own.** npm includes `LICENSE` automatically but
+**not** `NOTICE`, which is why it is listed explicitly in `files` and why step 5
+refuses a tarball without it. Apache-2.0 §4(d) makes carrying it an obligation.
 
-## 6b. Moving from Phase 1 to Phase 2
+## Supply-chain gates
 
-Done on 2026-08-28, ahead of the public 1.0.0. Kept as a record of what the move
-touches, because getting only some of it right leaves the gates disagreeing with
-the workflow. Change all of these in one commit:
+npm only attests packages published with public access. Step 3 reads
+`publish.yml` with comments stripped (the workflow's own prose mentions both
+flags) and requires `registry-url` on `registry.npmjs.org`, `--provenance`,
+`id-token: write`, and `ignore-scripts=true` in `.npmrc`. An unsigned public
+release is a regression and has to be re-published.
+
+### Record: moving from GitHub Packages to public npm
+
+Done on 2026-08-28, ahead of the public 1.0.0. Kept because getting only some of
+it right leaves the gates disagreeing with the workflow. The move touched, in
+one commit:
 
 1. `publish.yml`: `registry-url` to `https://registry.npmjs.org`, add
    `id-token: write`, publish with `--access public --provenance --ignore-scripts`,
@@ -103,44 +109,28 @@ the workflow. Change all of these in one commit:
 3. `README.md`: drop the GitHub Packages `~/.npmrc` block from Install
 4. `sop-post-release-testing.md`: re-enable the provenance phase
 
-CI's registry check flips on its own — it reads the workflow rather than a flag.
+Provenance is unavailable for a private package: claiming it in the workflow
+fails the publish, and a reader would believe the release is attested when it
+cannot be.
 
-## 7. Verify what the tarball ships
+## What publish.yml still does
 
-```bash
-npm pack --dry-run
-```
+On a `v*` tag: checkout, Node setup, a check that the tag equals
+`package.json`, `npm publish --access public --provenance --ignore-scripts`, and
+the GitHub Release. Nothing else. The tag check stays because tagging the wrong
+commit is easy and invisible until someone installs the result.
 
-`lib/`, `templates/`, `bin/`, `gitspace.plugin.zsh`, `_gitspace`, `LICENSE` and
-`NOTICE` must all be present. npm includes `LICENSE` automatically but **not**
-`NOTICE`, which is why it is listed explicitly in `files`.
+## 4. Verify
 
-## 8. Commit and tag
-
-```bash
-git commit -m "chore: release vX.Y.Z"
-git tag vX.Y.Z
-git push origin main --tags
-```
-
-The tag must sit on the release commit. `publish.yml` re-checks that the tag
-matches `package.json` and refuses otherwise — a guard added because tagging the
-wrong commit is easy and invisible until someone installs the result.
-
-## 9. Verify
-
-```bash
-npm view @softspark/gitspace version
-```
-
-Check the GitHub Release page, then run `sop-post-release-testing.md`.
+The script already confirmed the registry version and the GitHub Release. Run
+`sop-post-release-testing.md` against the published package.
 
 ## Rollback
 
 ```bash
 npm deprecate @softspark/gitspace@X.Y.Z "reason"
-git tag -d vX.Y.Z && git push origin --delete vX.Y.Z
 ```
 
 Deprecate rather than unpublish: npm restricts unpublishing, and consumers may
-already have the version pinned.
+already have the version pinned. Deleting the tag does not delete what was
+published; fix forward with a new patch version through the same script.

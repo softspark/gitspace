@@ -27,9 +27,11 @@ the bar for correctness is higher.
 characters, one logical change per commit. Never pass `--no-verify`; if a hook
 fails, fix the cause. Never add AI co-authorship trailers.
 
-## CI Requirements
+## Required Checks
 
-Maintainer procedures:
+There is no CI on pushes or pull requests: the gates run on your machine, and
+the maintainer's release script runs them again before any tag. Maintainer
+procedures:
 
 - [Pre-commit gate](../kb/procedures/sop-pre-commit.md)
 - [Release procedure](../kb/procedures/sop-release.md)
