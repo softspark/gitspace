@@ -42,7 +42,10 @@ surfaces weeks later in someone else's repository — or in a compliance review.
 2. **Hooks.** `pre-commit` and `pre-push` check the e-mail, the SSH alias and the
    active `gh` account against the workspace the repository sits in.
 3. **URL rewriting.** `url.<alias>.insteadOf` forces every remote in a workspace
-   onto that workspace's key.
+   onto that workspace's key. An owner route sends the repositories of the
+   workspace's `gh` account over the same key from any directory, so a git run
+   outside the workspace (a package manager's cache such as `~/.pub-cache`)
+   does not fall back to another account's key.
 
 The third layer is the one that matters. Hooks can be skipped with `--no-verify`
 and overridden by tools that set their own `core.hooksPath`; the key separation
@@ -183,8 +186,8 @@ apply while the repository is still being created, so a plain
 gitspace doctor
 ```
 
-Verifies hooks, global settings, per-workspace configs, `includeIf` wiring, SSH
-aliases and `gh` login state. Exits non-zero when anything is wrong, so it can
+Verifies hooks, global settings, owner routes, per-workspace configs, `includeIf`
+wiring, SSH aliases and `gh` login state. Exits non-zero when anything is wrong, so it can
 gate a provisioning script.
 
 It also compares the installed hooks against the plugin source. The plugin
@@ -230,8 +233,9 @@ Installed state, outside the plugin tree:
 ```
 ~/.config/git/workspaces.conf     workspace table
 ~/.config/git/hooks/              guard.sh, pre-commit, pre-push
+~/.config/git/routes.gitconfig    owner routes, generated from workspaces.conf
 ~/.gitconfig-<workspace>          identity, hooksPath, URL rewriting
-~/.gitconfig                      includeIf per workspace
+~/.gitconfig                      includeIf per workspace, include of the routes
 ```
 
 ## Key Features
@@ -293,6 +297,9 @@ every third-party author turns the report into noise.
 - A repository that sets its own `core.hooksPath` (husky does this on
   `npm install`) overrides the hooks for that repository. Layer 3 still applies.
 - `includeIf` does not apply during `git clone`, which is why `wclone` exists.
+- Owner routes cover the `gh` account of a workspace only. A GitHub
+  organisation under another name is reached from outside the workspace with
+  `Host github.com`'s key.
 - Workspace matching is by path prefix; a workspace nested inside another must be
   registered separately to win over its parent.
 

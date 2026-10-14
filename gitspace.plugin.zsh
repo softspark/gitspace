@@ -13,6 +13,7 @@
 typeset -g GITSPACE_CONF="${GITSPACE_CONF:-$HOME/.config/git/workspaces.conf}"
 typeset -g GITSPACE_LIB="${GITSPACE_LIB:-$HOME/.config/git/hooks}"
 typeset -g GITSPACE_BIN="${GITSPACE_BIN:-$HOME/.config/git/bin}"
+typeset -g GITSPACE_ROUTES="${GITSPACE_ROUTES:-${GITSPACE_CONF:h}/routes.gitconfig}"
 typeset -g GITSPACE_SRC="${0:A:h}"
 
 autoload -Uz add-zsh-hook
@@ -84,6 +85,64 @@ _gs_has_include() {
   grep -qF "gitdir:$abs/" "$HOME/.gitconfig" 2>/dev/null && return 0
   grep -qF "gitdir:$tilde/" "$HOME/.gitconfig" 2>/dev/null && return 0
   return 1
+}
+
+# --- owner routes --------------------------------------------------------------
+#
+# The includeIf reaches only a git that runs INSIDE the workspace. A git driven
+# from elsewhere - a package manager fetching a git dependency into its cache
+# (`git --git-dir=~/.pub-cache/...`), a checkout in /tmp - gets no workspace
+# rewrite, falls back to `Host github.com` and so to another account's key, and
+# GitHub answers "Repository not found". Routing by OWNER instead holds for
+# every git on the machine: the repositories of a workspace's gh account go over
+# that workspace's GitHub alias wherever they are fetched from. Inside the
+# workspace nothing changes, since git picks the longest matching insteadOf and
+# the route only ever narrows the workspace's own rewrite. Identity (e-mail,
+# hooks) stays bound to the directory.
+
+# The routes, generated from workspaces.conf. One per gh account: the first
+# workspace naming it wins, because two rules for one prefix leave git to pick.
+_gs_routes_render() {
+  emulate -L zsh
+  local line acct al
+  local -a f
+  local -A seen
+  print -r -- "# gitspace: generated from $GITSPACE_CONF - edits are overwritten by"
+  print -r -- "# gitspace install / add / remove"
+  while IFS= read -r line; do
+    f=("${(@s:|:)line}")
+    acct=$f[4]
+    [[ -n "$acct" && -z "${seen[$acct]}" ]] || continue
+    for al in ${(s:,:)f[5]}; do
+      [[ "$(_gs_alias_host $al)" == "github.com" ]] || continue
+      seen[$acct]=1
+      print -r -- ""
+      print -r -- "# $f[1]: repositories of $acct go over key $al from any directory"
+      print -r -- "[url \"$al:$acct/\"]"
+      print -r -- $'\tinsteadOf = git@github.com:'"$acct/"
+      print -r -- $'\tinsteadOf = https://github.com/'"$acct/"
+      break
+    done
+  done < <(_gs_rows)
+}
+
+# Is the routes file included from ~/.gitconfig, in either path form?
+_gs_has_routes_include() {
+  grep -qF "path = $GITSPACE_ROUTES" "$HOME/.gitconfig" 2>/dev/null && return 0
+  grep -qF "path = ${GITSPACE_ROUTES/#$HOME/~}" "$HOME/.gitconfig" 2>/dev/null
+}
+
+# Regenerate the routes and include them unconditionally - never through an
+# includeIf, which is the very scope they exist to escape.
+_gs_routes_write() {
+  mkdir -p "${GITSPACE_ROUTES:h}"
+  _gs_routes_render > "$GITSPACE_ROUTES"
+  _gs_has_routes_include && return 0
+  {
+    print -r -- ""
+    print -r -- "[include]"
+    print -r -- $'\tpath = '"$GITSPACE_ROUTES"
+  } >> "$HOME/.gitconfig"
 }
 
 # The allowed-signers file lets `git log --show-signature` verify locally, not
@@ -295,6 +354,9 @@ _gs_install() {
     print -P "%F{8}=%f $GITSPACE_CONF already exists - left alone"
   fi
 
+  _gs_routes_write
+  print -P "%F{green}v%f owner routes -> ${GITSPACE_ROUTES/#$HOME/~}"
+
   # Forbid guessing an identity from username@hostname.
   if [[ "$(command git config --global user.useConfigOnly)" != "true" ]]; then
     command git config --global user.useConfigOnly true
@@ -454,6 +516,7 @@ _gs_add() {
       print -r -- $'\tpath = '"$inc"
     } >> "$gc"
   fi
+  _gs_routes_write
 
   local a_disp=${acct:-none} s_disp=${aliases:-none}
   print -P "%F{green}v%f workspace %F{cyan}$ws%f -> $wspath"
@@ -474,7 +537,8 @@ _gs_remove() {
 
   local tmp=$(mktemp)
   grep -v "^$ws|" "$GITSPACE_CONF" > "$tmp" && mv "$tmp" "$GITSPACE_CONF"
-  print -P "%F{green}v%f removed the entry from $GITSPACE_CONF"
+  _gs_routes_write
+  print -P "%F{green}v%f removed the entry from $GITSPACE_CONF and its owner route"
   print -P "%F{yellow}!%f left in place (delete by hand if you want them gone):"
   print -P "   ~/.gitconfig-$ws  and the includeIf section in ~/.gitconfig"
   print -P "   the workspace directory and its repositories"
@@ -562,6 +626,24 @@ _gs_doctor() {
     print -P "  %F{yellow}!%f global user.email = $gmail (silent fallback)"; (( problems++ ))
   else
     print -P "  %F{green}v%f no global user.email"
+  fi
+
+  # Without the routes a git outside every workspace fetches a workspace's own
+  # repositories with whatever key `Host github.com` names.
+  print -P "\n%F{cyan}owner routes%f"
+  local routes=$(_gs_routes_render) rshort=${GITSPACE_ROUTES/#$HOME/~}
+  if ! _gs_has_routes_include; then
+    print -P "  %F{red}x%f ~/.gitconfig does not include $rshort - run: gitspace install"
+    (( problems++ ))
+  elif [[ ! -f "$GITSPACE_ROUTES" || "$(< "$GITSPACE_ROUTES")" != "$routes" ]]; then
+    print -P "  %F{red}x%f $rshort is out of date with workspaces.conf - run: gitspace install"
+    (( problems++ ))
+  else
+    local route
+    while IFS= read -r route; do
+      [[ -n "$route" ]] && print -P "  %F{green}v%f $route"
+    done < <(print -r -- "$routes" |
+      sed -n 's/^\[url "\([^:]*\):\(.*\)\/"\]$/github.com:\2\/* -> \1, from any directory/p')
   fi
 
   print -P "\n%F{cyan}workspaces%f"

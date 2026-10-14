@@ -7,6 +7,22 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
+## Unreleased
+
+### Fixed
+- **A workspace's repositories reach its key from outside the workspace.** The
+  `includeIf` covers only a git run inside the workspace directory. A package
+  manager fetching a git dependency into its cache (`flutter pub get` runs
+  `git --git-dir=~/.pub-cache/...`) got no rewrite, used `Host github.com`'s
+  key, which belonged to another account, and failed with "Repository not
+  found". `install`, `add` and `remove` now generate
+  `~/.config/git/routes.gitconfig`, included unconditionally, which routes
+  `git@github.com:<gh-account>/` and `https://github.com/<gh-account>/` over
+  the workspace's GitHub alias everywhere. `doctor` reports a missing or stale
+  routes file. Existing setups pick it up with `gitspace install`.
+
+---
+
 ## v1.3.0 -- Structured audits and workspace discovery (2026-09-06)
 
 - Export local repository findings as JSON or SARIF 2.1.0.

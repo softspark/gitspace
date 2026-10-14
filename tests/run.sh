@@ -517,6 +517,84 @@ else
 fi
 
 # --------------------------------------------------------------------------
+head_ "owner routes"
+
+# A package manager fetches a git dependency from its own cache directory, where
+# no workspace includeIf applies. The route must reach it there, so it is tested
+# from a directory outside every workspace.
+if command -v zsh >/dev/null 2>&1; then
+  ROUTES="$HOME/.config/git/routes.gitconfig"
+  zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+          source '$REPO/gitspace.plugin.zsh'; gitspace install" >/dev/null 2>&1
+
+  CACHE="$SANDBOX/pkg-cache/dep"
+  rm -rf "$CACHE"; mkdir -p "$CACHE"; git -C "$CACHE" init -q
+  git -C "$CACHE" remote add origin "git@github.com:acme-bot/dep.git"
+  got=$(git -C "$CACHE" ls-remote --get-url origin)
+  if [ "$got" = "github-acme:acme-bot/dep.git" ]; then
+    ok "outside every workspace, the gh account's repositories go over its alias"
+  else
+    bad "owner route not applied outside the workspace" "got $got"
+  fi
+
+  git -C "$CACHE" remote set-url origin "https://github.com/acme-bot/dep.git"
+  got=$(git -C "$CACHE" ls-remote --get-url origin)
+  if [ "$got" = "github-acme:acme-bot/dep.git" ]; then
+    ok "the https form is routed as well"
+  else
+    bad "https remote of the gh account not routed" "got $got"
+  fi
+
+  git -C "$CACHE" remote set-url origin "git@github.com:stranger/dep.git"
+  got=$(git -C "$CACHE" ls-remote --get-url origin)
+  if [ "$got" = "git@github.com:stranger/dep.git" ]; then
+    ok "another owner's repositories are left alone"
+  else
+    bad "a foreign owner was rerouted" "got $got"
+  fi
+
+  # Only the github.com alias carries the account; the GitLab one never does.
+  if grep -q 'gitlab-acme' "$ROUTES"; then
+    bad "a gh account was routed over a non-GitHub alias"
+  else
+    ok "routes use the workspace's GitHub alias only"
+  fi
+
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'; gitspace doctor" 2>&1)
+  case "$out" in
+    *"github.com:acme-bot/* -> github-acme"*) ok "doctor lists the route" ;;
+    *) bad "doctor does not list the route" "$out" ;;
+  esac
+
+  # A row added by hand, without gitspace add, leaves the routes behind.
+  printf 'Late|%s/ws/Late|late@acme.test|late-bot|github-acme\n' "$HOME" >> "$GITSPACE_CONF"
+  mkdir -p "$HOME/ws/Late"
+  out=$(zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+                source '$REPO/gitspace.plugin.zsh'; gitspace doctor" 2>&1)
+  case "$out" in
+    *"routes.gitconfig is out of date"*) ok "doctor reports routes behind workspaces.conf" ;;
+    *) bad "doctor accepted stale routes" ;;
+  esac
+
+  zsh -c "GITSPACE_CONF='$GITSPACE_CONF' GITSPACE_LIB='$GITSPACE_LIB'
+          source '$REPO/gitspace.plugin.zsh'; gitspace remove Late" >/dev/null 2>&1
+  if grep -q 'late-bot' "$ROUTES"; then
+    bad "remove left the workspace's route behind"
+  else
+    ok "remove drops the workspace's route"
+  fi
+
+  if [ "$(grep -c "path = $ROUTES" "$HOME/.gitconfig")" -eq 1 ]; then
+    ok "the routes are included once, however often they are rewritten"
+  else
+    bad "routes include missing or duplicated in ~/.gitconfig"
+  fi
+else
+  skip "owner route tests (zsh not installed)"
+fi
+
+# --------------------------------------------------------------------------
 head_ "zsh syntax"
 
 if command -v zsh >/dev/null 2>&1; then

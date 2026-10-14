@@ -5,7 +5,7 @@ service: gitspace
 tags: [reference, configuration, audit]
 version: "1.3.0"
 created: "2026-09-06"
-last_updated: "2026-09-06"
+last_updated: "2026-10-14"
 description: "Gitspace configuration and audit."
 ---
 
@@ -23,6 +23,18 @@ Hidden directories such as `.worktrees/` are included in traversal.
 `gitspace add <path> --email <address>`; optional `--name`, `--gh`,
 `--alias`, `--as` and `--sign` configure identity, routing and signing.
 SSH aliases must already exist.
+
+`gitspace install`, `add` and `remove` regenerate
+`~/.config/git/routes.gitconfig` (next to `GITSPACE_CONF`, override with
+`GITSPACE_ROUTES`) and include it unconditionally from `~/.gitconfig`. For
+each gh account, the first workspace naming it and having a `github.com`
+alias contributes `url.<alias>:<account>/.insteadOf` for
+`git@github.com:<account>/` and `https://github.com/<account>/`. These rules
+apply to every git on the machine, including one run with `--git-dir` outside
+any workspace (a package manager's git cache). Inside a workspace they only
+narrow its own rewrite, and identity stays bound to the directory. `doctor`
+fails when the include is missing or the file differs from what
+`workspaces.conf` produces.
 
 The gh wrapper resolves the account at command time, passes its token only
 to the invoked gh process and preserves caller-supplied tokens. It never
