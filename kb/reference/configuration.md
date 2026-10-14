@@ -3,7 +3,7 @@ title: "Gitspace configuration and audit"
 category: reference
 service: gitspace
 tags: [reference, configuration, audit]
-version: "1.3.0"
+version: "1.4.0"
 created: "2026-09-06"
 last_updated: "2026-10-14"
 description: "Gitspace configuration and audit."

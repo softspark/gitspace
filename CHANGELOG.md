@@ -7,7 +7,7 @@ Versioning follows [Semantic Versioning](https://semver.org/).
 
 ---
 
-## Unreleased
+## v1.4.0 -- Owner routes outside the workspace (2026-10-14)
 
 ### Fixed
 - **A workspace's repositories reach its key from outside the workspace.** The

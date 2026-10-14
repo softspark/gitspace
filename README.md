@@ -6,11 +6,13 @@
 [![npm](https://img.shields.io/npm/v/@softspark/gitspace)](https://www.npmjs.com/package/@softspark/gitspace)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-## What's New in v1.3.0
+## What's New in v1.4.0
 
-- Audit exports JSON and SARIF 2.1.0 for automation and Code Scanning.
-- Nested workspaces and linked worktrees are audited under their owning workspace.
-- Remote URLs are redacted from audit output. Invalid history limits are rejected.
+- A workspace's GitHub repositories go over its key from any directory, so a
+  package manager fetching a git dependency into its cache (`flutter pub get`,
+  `~/.pub-cache`) no longer falls back to another account's key.
+- `doctor` checks the generated owner routes. Existing setups get them with
+  `gitspace install`.
 
 ## Table of Contents
 
